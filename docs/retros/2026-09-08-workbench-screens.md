@@ -69,3 +69,23 @@ path consumption and Telegram photo round trip are not certified.
 The available UI inventory contained no browsers or apps. Source, interaction
 tests and review support the changes, but the user must confirm the installed
 screens in the real app; no screenshot-only visual certification is claimed.
+
+## Local integration and installation
+
+Implementation commit `a7fd7c6` was fast-forwarded into `feat/control-door` in the
+clean shared checkout without switching its branch. The merged-tree `npm test`
+also exited 0: 1,446 tests across 121 files. Nothing was pushed. Both worktrees
+are preserved, and unrelated NanoClaw user work was untouched.
+
+The release bundle was ad-hoc signed, verified, copied to `/Applications/Vanguard.app`
+and opened after checking no existing Maestro process was running. The previous
+app remains recoverable at
+`/Users/aoreilly/Library/Application Support/Vanguard-rollback.Qjr7LB/Vanguard.app`.
+Signing, installation and runtime checks exited 0. Built and installed binary
+SHA-256 values matched:
+`f14ca958a81fa1c0c3cfc82d698355829304b562b816583c1463d917a67e4fda`.
+
+The app started as PID 34719. Authenticated `GET /control/sessions` returned 200
+with zero sessions; unauthenticated `POST /control/image/999999` returned 401.
+This confirms app startup and endpoint authentication, not image delivery to an
+actual agent. User visual confirmation and live SSH/Telegram checks remain open.
