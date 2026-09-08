@@ -3,16 +3,19 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * Layout invariants that only exist in CSS, and that no rendered test can
- * reach: happy-dom applies no stylesheet, so a stacking-context or flow-width
- * regression here is invisible to every component test in the suite. These
- * assert the rules that other layers depend on, and name the dependency.
+ * Shell invariants that live in CSS or in class names, and that no rendered
+ * test can reach: happy-dom applies no stylesheet, so a stacking-context, a
+ * flow-width or a contrast regression here is invisible to every component
+ * test in the suite. These assert the rules other layers depend on, and name
+ * the dependency.
  */
 
 // Vitest's root is the repo root (see vite.config.ts `test.include`).
 const read = (relative: string) => readFileSync(resolve(process.cwd(), relative), "utf8");
 const css = read("src/styles/globals.css");
 const boardView = read("src/components/board/BoardView.tsx");
+const bottomBar = read("src/components/shared/BottomBar.tsx");
+const tailwind = read("tailwind.config.ts");
 
 /** The declaration text of one flat rule, matched on its exact selector. */
 function ruleBody(selector: string): string {
@@ -70,5 +73,16 @@ describe("workbench rail flow", () => {
     // The rail clips horizontally to hide label overflow mid-transition, so
     // the popup only escapes while More is open.
     expect(ruleBody('.workbench-rail[data-more-open="true"]')).toMatch(/overflow:\s*visible/);
+  });
+});
+
+describe("workbench accent ink", () => {
+  it("paints the footer's accent-filled action with the design system's onAccent", () => {
+    // White on the dark accent (#828fff) is about 2.87:1 and fails WCAG AA for
+    // normal text. `--onAccent` (#0d0d10 dark, #ffffff light) is about 6.77:1.
+    expect(tailwind).toMatch(/"on-accent":\s*rgb\("on-accent"\)/);
+    const launch = /className="([^"]*bg-maestro-accent [^"]*)"/.exec(bottomBar)?.[1] ?? "";
+    expect(launch).toContain("text-maestro-on-accent");
+    expect(launch).not.toContain("text-white");
   });
 });

@@ -175,10 +175,14 @@
   .workbench-rail[data-expanded="true"] {
     width: 232px;
   }
-  /* Clipping is what hides the labels overflowing a 58px rail mid-transition,
-     so it can only be lifted while the rail is already at full width, which
-     `data-more-open` guarantees (More forces the expanded state). Without this
-     the popup below, at `left: 100%`, would be clipped out of existence. */
+  /* Do not restore the clip here. `overflow-x: hidden` makes the rail a
+     clipping box on BOTH axes, so the More popup below, at `left: 100%`, is
+     clipped out of existence without this rule: the menu simply stops
+     appearing, with no error anywhere. The clip exists to hide row labels
+     overflowing a 58px rail mid-transition, and lifting it is safe here
+     because `data-more-open` only ever holds while the rail is already at
+     full width (More forces the expanded state). The one cost is that the
+     rail cannot scroll while the menu is open, which is deliberate. */
   .workbench-rail[data-more-open="true"] {
     overflow: visible;
   }
@@ -331,6 +335,7 @@
     left: 100%;
     bottom: 8px;
     z-index: 60;
+    margin-left: 6px;
     min-width: 184px;
     padding: 6px;
     border: 1px solid rgb(var(--maestro-border));

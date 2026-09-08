@@ -16,6 +16,9 @@ export default {
           text: rgb("text"),
           muted: rgb("muted"),
           accent: rgb("accent"),
+          // Ink for anything sitting ON the accent fill. White fails WCAG AA
+          // on the dark accent; this is the design system's `--onAccent`.
+          "on-accent": rgb("on-accent"),
           blue: rgb("blue"),
           green: rgb("green"),
           red: rgb("red"),

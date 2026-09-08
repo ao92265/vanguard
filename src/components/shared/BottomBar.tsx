@@ -98,7 +98,7 @@ export function BottomBar({
         <button
           type="button"
           onClick={onLaunchAll}
-          className="relative z-10 flex items-center gap-2 rounded-lg bg-maestro-accent px-4 py-1.5 text-xs font-medium text-white shadow-md shadow-black/20 transition-colors hover:bg-maestro-accent/80"
+          className="relative z-10 flex items-center gap-2 rounded-lg bg-maestro-accent px-4 py-1.5 text-xs font-medium text-maestro-on-accent shadow-md shadow-black/20 transition-colors hover:bg-maestro-accent/80"
         >
           <Play size={11} fill="currentColor" />
           {unlaunchedCount === 1 ? "Launch Session" : `Launch All (${unlaunchedCount})`}
