@@ -590,6 +590,45 @@
 }
 
 /* Pod grid card shadows */
+.workbench-rail,
+.workbench-titlebar {
+  background: color-mix(in srgb, rgb(var(--maestro-surface)) 85%, black);
+}
+
+[data-theme="light"] .workbench-rail,
+[data-theme="light"] .workbench-titlebar {
+  background: rgb(var(--maestro-surface));
+}
+
+.workbench-rail > div > div {
+  flex-direction: column;
+  border-radius: 8px;
+  margin-right: 0;
+}
+
+.work-ledger {
+  container-type: inline-size;
+}
+
+.work-item {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.65fr) minmax(0, 1.7fr) auto;
+  align-items: center;
+  gap: 20px;
+}
+
+@container (max-width: 640px) {
+  .work-item {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+  }
+
+  .work-item-objective {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
 .platform-linux .pod-grid-card {
   /* biome-ignore lint/complexity/noImportantStyles: must outrank the component's own
      Tailwind shadow/transition utility classes to kill GPU compositing on Linux. */

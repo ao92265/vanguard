@@ -44,6 +44,7 @@ import { ProjectTabs } from "./components/shared/ProjectTabs";
 import { QuickOpenPalette } from "./components/shared/QuickOpenPalette";
 import { type EagleProjectOption, TopBar } from "./components/shared/TopBar";
 import { UtilityPanel, type UtilityPanelKind } from "./components/shared/UtilityPanel";
+import { WorkbenchTitleBar } from "./components/shared/WorkbenchTitleBar";
 import {
   loadSavedSidebarTab,
   Sidebar,
@@ -815,10 +816,13 @@ function App() {
     [handleBoardNavigate],
   );
 
-  // Cmd/Ctrl+E and the TopBar segments both land here. The Board is a layer,
-  // never a replacement: closing it reveals the grid that was mounted all
-  // along, so there is nothing to tear down or rebuild either way.
-  const handleSetBoardView = useCallback((open: boolean) => {
+  const handleWorkbenchNavigate = useCallback((open: boolean) => {
+    setLandscapeView(false);
+    useWorkflowsViewStore.getState().close();
+    useHomeViewStore.getState().close();
+    useFactoryViewStore.getState().close();
+    useOrchestratorViewStore.getState().close();
+    usePulseViewStore.getState().close();
     if (open) useBoardViewStore.getState().open();
     else useBoardViewStore.getState().close();
   }, []);
@@ -871,13 +875,8 @@ function App() {
       // drop the full-screen views, select the project, then zoom on the next
       // frame — the target project's grid is not mounted until that render, and
       // navigateToSession would still see the pre-close eagle state this tick.
-      setLandscapeView(false);
+      handleWorkbenchNavigate(false);
       setEagleView(false);
-      useHomeViewStore.getState().close();
-      useFactoryViewStore.getState().close();
-      useOrchestratorViewStore.getState().close();
-      usePulseViewStore.getState().close();
-      useWorkflowsViewStore.getState().close();
       selectTab(item.tabId);
 
       // A worktree with no live session has no terminal to zoom; surfacing its
@@ -888,7 +887,7 @@ function App() {
         multiProjectRef.current?.zoomSessionInProject(item.tabId, sessionId);
       });
     },
-    [selectTab],
+    [selectTab, handleWorkbenchNavigate],
   );
 
   const handleToggleFactoryView = useCallback(() => {
@@ -964,8 +963,9 @@ function App() {
   // trigger used to be a button inside the now-cut Launch panel, but the
   // overlay itself never depended on that panel being open.
   const handleOpenWorkflows = useCallback(() => {
+    handleWorkbenchNavigate(false);
     useWorkflowsViewStore.getState().open();
-  }, []);
+  }, [handleWorkbenchNavigate]);
 
   // Alt+1-3: open the sidebar on tab N; pressing the active tab's shortcut
   // again closes the sidebar (per-tab toggle, no separate pane toggle).
@@ -1097,27 +1097,79 @@ function App() {
       className="vanguard-workspace flex h-dvh w-full flex-col bg-maestro-bg"
       style={{ ["--mac-title-bar-inset" as string]: macTitleBarInset }}
     >
-      {/* Project tabs — full width at top (with window controls) */}
-      <ProjectTabs
-        tabs={tabs.map((t) => ({
-          id: t.id,
-          name: t.name,
-          active: t.active,
-          color: projectColors.get(t.name) ?? projectColorFor(t.name),
-        }))}
-        onSelectTab={selectTab}
-        onCloseTab={handleCloseTab}
-        onNewTab={handleOpenProject}
-        onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
-        sidebarOpen={sidebarOpen}
-        onReorderTab={reorderTabs}
-        onMoveTab={moveTab}
+      <WorkbenchTitleBar
+        projectName={activeTab?.name}
+        onSearch={() => setQuickOpenOpen(true)}
+        onAddSession={() => {
+          handleWorkbenchNavigate(false);
+          if (eagleView) handleAddSessionShortcut();
+          else if (activeTab) handleAddSessionToProject(activeTab.id);
+        }}
+        canAddSession={
+          eagleView
+            ? eagleProjects.some((project) => !project.atMax)
+            : !!activeTab && activeTabSlotCount < MAX_SESSIONS
+        }
       />
 
-      {/* Main area: sidebar + content */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar — below project tabs */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <TopBar
+          layout="rail"
+          sidebarOpen={sidebarOpen}
+          onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
+          onToggleGitPanel={() => setGitPanelOpen((prev) => !prev)}
+          gitPanelOpen={gitPanelOpen}
+          eagleView={eagleView}
+          onToggleEagleView={() => {
+            handleWorkbenchNavigate(false);
+            setEagleView((v) => !v);
+          }}
+          landscapeView={landscapeView}
+          onToggleLandscapeView={() => {
+            handleWorkbenchNavigate(false);
+            setLandscapeView(true);
+          }}
+          landscapeAttention={needsInputAnywhere}
+          boardViewOpen={boardViewOpen}
+          onSetBoardView={handleWorkbenchNavigate}
+          homeViewOpen={homeViewOpen}
+          onToggleHomeView={handleToggleHomeView}
+          factoryViewOpen={factoryViewOpen}
+          onToggleFactoryView={handleToggleFactoryView}
+          orchestratorViewOpen={orchestratorViewOpen}
+          onToggleOrchestratorView={handleToggleOrchestratorView}
+          pulseViewOpen={pulseViewOpen}
+          onTogglePulseView={handleTogglePulseView}
+          homeAttention={needsInputAnywhere}
+          onToggleMemoryPanel={() => handleToggleUtilityPanel("memory")}
+          processesPanelOpen={utilityPanel === "processes"}
+          onToggleProcessesPanel={() => handleToggleUtilityPanel("processes")}
+          aiPanelOpen={utilityPanel === "ai"}
+          onToggleAiPanel={() => handleToggleUtilityPanel("ai")}
+          onWatchdogNavigate={handleWatchdogNavigate}
+          onOpenExtensions={handleOpenExtensions}
+          onOpenWorkflows={handleOpenWorkflows}
+          workflowsViewOpen={workflowsViewOpen}
+        />
         <Sidebar
+          projectNavigation={
+            <ProjectTabs
+              vertical
+              tabs={tabs.map((t) => ({
+                id: t.id,
+                name: t.name,
+                active: t.active,
+                color: projectColors.get(t.name) ?? projectColorFor(t.name),
+              }))}
+              onSelectTab={selectTab}
+              onCloseTab={handleCloseTab}
+              onNewTab={handleOpenProject}
+              onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
+              sidebarOpen={sidebarOpen}
+              onReorderTab={reorderTabs}
+              onMoveTab={moveTab}
+            />
+          }
           collapsed={!sidebarOpen}
           onCollapse={() => setSidebarOpen(false)}
           activeTab={sidebarTab}
@@ -1134,95 +1186,58 @@ function App() {
 
         {/* Right column: top bar + content + bottom bar */}
         <div className="flex flex-1 flex-col overflow-hidden">
-          {/* Top bar row - includes git panel header when open */}
-          <div className="relative z-10 flex min-h-12 shrink-0 border-b border-maestro-border bg-maestro-surface">
-            {/* TopBar takes flex-1 to fill available space */}
-            <TopBar
-              sidebarOpen={sidebarOpen}
-              onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
-              onToggleGitPanel={() => setGitPanelOpen((prev) => !prev)}
-              gitPanelOpen={gitPanelOpen}
-              hideWindowControls
-              inGridView={activeTabSessionsLaunched}
-              slotCount={activeTabSlotCount}
-              maxSessions={MAX_SESSIONS}
-              onAddSession={() => multiProjectRef.current?.addSessionToActiveProject()}
-              eagleView={eagleView}
-              onToggleEagleView={() => setEagleView((v) => !v)}
-              eagleProjects={eagleProjects}
-              onAddSessionToProject={handleAddSessionToProject}
-              landscapeView={landscapeView}
-              onToggleLandscapeView={() => setLandscapeView((v) => !v)}
-              landscapeAttention={needsInputAnywhere}
-              boardViewOpen={boardViewOpen}
-              onSetBoardView={handleSetBoardView}
-              homeViewOpen={homeViewOpen}
-              onToggleHomeView={handleToggleHomeView}
-              factoryViewOpen={factoryViewOpen}
-              onToggleFactoryView={handleToggleFactoryView}
-              orchestratorViewOpen={orchestratorViewOpen}
-              onToggleOrchestratorView={handleToggleOrchestratorView}
-              pulseViewOpen={pulseViewOpen}
-              onTogglePulseView={handleTogglePulseView}
-              homeAttention={needsInputAnywhere}
-              onToggleMemoryPanel={() => handleToggleUtilityPanel("memory")}
-              processesPanelOpen={utilityPanel === "processes"}
-              onToggleProcessesPanel={() => handleToggleUtilityPanel("processes")}
-              aiPanelOpen={utilityPanel === "ai"}
-              onToggleAiPanel={() => handleToggleUtilityPanel("ai")}
-              onWatchdogNavigate={handleWatchdogNavigate}
-              onOpenExtensions={handleOpenExtensions}
-              onOpenWorkflows={handleOpenWorkflows}
-            />
-
-            {/* Git panel header - inline at same level as TopBar.
+          {gitPanelOpen && (
+            <div className="relative z-10 flex shrink-0 justify-end border-b border-maestro-border bg-maestro-surface">
+              {/* Git panel header - inline at same level as TopBar.
                 In eagle view it describes the carousel-selected project. */}
-            {gitPanelOpen && (
-              <div
-                className="flex h-10 shrink-0 items-center border-l border-maestro-border px-3 gap-2 bg-maestro-bg"
-                style={{ width: rightPanelWidth }}
-              >
-                <GitFork size={14} className="text-maestro-muted" />
-                {gitTargetTab?.workspaceType === "multi-repo" && gitTargetTab.selectedRepoPath && (
-                  <span className="text-xs font-medium text-maestro-accent">
-                    {
-                      gitTargetTab.repositories.find(
-                        (r) => r.path === gitTargetTab.selectedRepoPath,
-                      )?.name
-                    }
+              {gitPanelOpen && (
+                <div
+                  className="flex h-10 shrink-0 items-center border-l border-maestro-border px-3 gap-2 bg-maestro-bg"
+                  style={{ width: rightPanelWidth }}
+                >
+                  <GitFork size={14} className="text-maestro-muted" />
+                  {gitTargetTab?.workspaceType === "multi-repo" &&
+                    gitTargetTab.selectedRepoPath && (
+                      <span className="text-xs font-medium text-maestro-accent">
+                        {
+                          gitTargetTab.repositories.find(
+                            (r) => r.path === gitTargetTab.selectedRepoPath,
+                          )?.name
+                        }
+                      </span>
+                    )}
+                  <span className="text-sm font-medium text-maestro-text">
+                    {GIT_PANEL_TITLES[gitPanelTab]}
                   </span>
-                )}
-                <span className="text-sm font-medium text-maestro-text">
-                  {GIT_PANEL_TITLES[gitPanelTab]}
-                </span>
-                {gitPanelTab === "commits" && commitCount > 0 && (
-                  <span className="rounded-full bg-maestro-accent/15 px-1.5 py-px text-[10px] font-medium text-maestro-accent">
-                    {commitCount}
-                  </span>
-                )}
-                <div className="flex-1" />
-                {gitRepoPath && (
+                  {gitPanelTab === "commits" && commitCount > 0 && (
+                    <span className="rounded-full bg-maestro-accent/15 px-1.5 py-px text-[10px] font-medium text-maestro-accent">
+                      {commitCount}
+                    </span>
+                  )}
+                  <div className="flex-1" />
+                  {gitRepoPath && (
+                    <button
+                      type="button"
+                      onClick={handleRefreshGit}
+                      disabled={isRefreshingGit}
+                      className="rounded p-1 text-maestro-muted transition-colors hover:bg-maestro-card hover:text-maestro-text disabled:opacity-50"
+                      aria-label="Refresh commits"
+                    >
+                      <RefreshCw size={14} className={isRefreshingGit ? "animate-spin" : ""} />
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={handleRefreshGit}
-                    disabled={isRefreshingGit}
-                    className="rounded p-1 text-maestro-muted transition-colors hover:bg-maestro-card hover:text-maestro-text disabled:opacity-50"
-                    aria-label="Refresh commits"
+                    onClick={() => setGitPanelOpen(false)}
+                    className="rounded p-1 text-maestro-muted transition-colors hover:bg-maestro-card hover:text-maestro-text"
+                    aria-label="Close git panel"
                   >
-                    <RefreshCw size={14} className={isRefreshingGit ? "animate-spin" : ""} />
+                    <X size={14} />
                   </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setGitPanelOpen(false)}
-                  className="rounded p-1 text-maestro-muted transition-colors hover:bg-maestro-card hover:text-maestro-text"
-                  aria-label="Close git panel"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            )}
-          </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Content area (main + optional git panel) */}
           <div className="relative isolate z-0 flex flex-1 overflow-hidden">
@@ -1254,7 +1269,8 @@ function App() {
                     workflowsViewOpen ||
                     homeViewOpen ||
                     factoryViewOpen ||
-                    orchestratorViewOpen
+                    orchestratorViewOpen ||
+                    pulseViewOpen
                   }
                 />
               )}

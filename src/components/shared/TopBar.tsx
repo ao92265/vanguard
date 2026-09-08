@@ -28,6 +28,7 @@ import { modLabel, titleWithShortcut } from "@/lib/shortcuts";
 import { countForArea, useHealthStore } from "@/stores/useHealthStore";
 import { GitHubWatchdogBadge } from "./GitHubWatchdogBadge";
 import { HealthAttentionBadge } from "./HealthAttentionBadge";
+import { WorkbenchRail } from "./WorkbenchRail";
 
 /** One entry of the eagle-view "add terminal" project dropdown. */
 export interface EagleProjectOption {
@@ -39,6 +40,8 @@ export interface EagleProjectOption {
 }
 
 interface TopBarProps {
+  layout?: "toolbar" | "rail";
+  workflowsViewOpen?: boolean;
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
   onToggleGitPanel?: () => void;
@@ -108,6 +111,8 @@ interface TopBarProps {
 }
 
 export function TopBar({
+  layout = "toolbar",
+  workflowsViewOpen = false,
   sidebarOpen,
   onToggleSidebar,
   onToggleGitPanel,
@@ -150,6 +155,7 @@ export function TopBar({
   // menu; this feeds the aggregated dot on the More button below (the
   // per-item badge inside the menu still uses HealthAttentionBadge directly).
   const memoryHealthCount = useHealthStore((s) => countForArea(s.flags, "memory"));
+  const processesHealthCount = useHealthStore((s) => countForArea(s.flags, "processes"));
 
   // Eagle view add-terminal dropdown (pick which project gets the new terminal)
   const [addMenuOpen, setAddMenuOpen] = useState(false);
@@ -211,6 +217,91 @@ export function TopBar({
       document.removeEventListener("keydown", onEscape);
     };
   }, [moreMenuOpen]);
+
+  if (layout === "rail") {
+    const covered =
+      homeViewOpen ||
+      factoryViewOpen ||
+      orchestratorViewOpen ||
+      pulseViewOpen ||
+      landscapeView ||
+      workflowsViewOpen;
+    return (
+      <WorkbenchRail
+        sidebarOpen={sidebarOpen}
+        onToggleSidebar={onToggleSidebar}
+        primary={[
+          {
+            label: "Work",
+            icon: Columns,
+            selected: boardViewOpen && !covered,
+            onClick: onSetBoardView ? () => onSetBoardView(true) : undefined,
+          },
+          {
+            label: "Terminals",
+            icon: LayoutGrid,
+            selected: !boardViewOpen && !covered,
+            onClick: onSetBoardView ? () => onSetBoardView(false) : undefined,
+          },
+          {
+            label: "Inbox",
+            icon: Home,
+            selected: homeViewOpen,
+            attention: homeAttention,
+            onClick: onToggleHomeView,
+          },
+          {
+            label: "Factory",
+            icon: Factory,
+            selected: factoryViewOpen,
+            onClick: onToggleFactoryView,
+          },
+          {
+            label: "Orchestrator",
+            icon: RadioTower,
+            selected: orchestratorViewOpen,
+            onClick: onToggleOrchestratorView,
+          },
+          { label: "Pulse", icon: Activity, selected: pulseViewOpen, onClick: onTogglePulseView },
+        ]}
+        tools={[
+          { label: "Fleet", icon: Bird, pressed: eagleView, onClick: onToggleEagleView },
+          {
+            label: "Map",
+            icon: Network,
+            selected: landscapeView,
+            attention: landscapeAttention,
+            onClick: onToggleLandscapeView,
+          },
+          { label: "Git", icon: GitMerge, pressed: gitPanelOpen, onClick: onToggleGitPanel },
+          {
+            label: "Processes",
+            icon: Gauge,
+            pressed: processesPanelOpen,
+            attention: processesHealthCount > 0,
+            badge: <HealthAttentionBadge area="processes" />,
+            onClick: onToggleProcessesPanel,
+          },
+          { label: "AI", icon: Sparkles, pressed: aiPanelOpen, onClick: onToggleAiPanel },
+          {
+            label: "Memory",
+            icon: Brain,
+            attention: memoryHealthCount > 0,
+            badge: <HealthAttentionBadge area="memory" />,
+            onClick: onToggleMemoryPanel,
+          },
+          {
+            label: "Workflows",
+            icon: Workflow,
+            selected: workflowsViewOpen,
+            onClick: onOpenWorkflows,
+          },
+          { label: "Extensions", icon: Package, onClick: onOpenExtensions },
+        ]}
+        footer={onWatchdogNavigate && <GitHubWatchdogBadge onNavigate={onWatchdogNavigate} />}
+      />
+    );
+  }
 
   return (
     <nav

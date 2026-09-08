@@ -141,14 +141,14 @@ export function BoardCard({
   const Icon = cardIcon(item);
 
   const shell = [
-    "flex w-full flex-col rounded-lg border bg-maestro-surface px-3 py-3 text-left",
-    item.needsYou ? "border-maestro-accent" : "border-maestro-border/70",
+    "work-item w-full px-3 py-4 text-left",
+    item.needsYou ? "bg-maestro-accent/5" : "bg-transparent",
     selected ? "ring-1 ring-maestro-text/50" : "",
   ].join(" ");
 
   const body = (
     <>
-      <span className="flex w-full items-center gap-1.5">
+      <span className="work-item-project flex min-w-0 items-center gap-2">
         <Icon size={11} className="shrink-0 text-maestro-muted" />
         <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-maestro-text">
           {item.projectName}
@@ -157,10 +157,10 @@ export function BoardCard({
           <span className="shrink-0 text-[10px] text-maestro-muted">{relAgo(item.since)}</span>
         )}
       </span>
-      <span className="mt-1 block w-full truncate text-[11px] text-maestro-muted">
+      <span className="work-item-objective block min-w-0 truncate text-[13px] text-maestro-text">
         {item.objective}
       </span>
-      <span className="mt-1.5 flex w-full items-center gap-1">
+      <span className="work-item-state flex flex-wrap items-center gap-1">
         <span className={`${badgeBaseClass} ${chip.cls} ${chip.mono ? "font-mono" : ""}`}>
           {chip.label}
         </span>

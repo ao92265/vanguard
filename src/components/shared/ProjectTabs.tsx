@@ -6,8 +6,13 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
-import { restrictToHorizontalAxis } from "@dnd-kit/modifiers";
-import { horizontalListSortingStrategy, SortableContext, useSortable } from "@dnd-kit/sortable";
+import { restrictToHorizontalAxis, restrictToVerticalAxis } from "@dnd-kit/modifiers";
+import {
+  horizontalListSortingStrategy,
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Minus, PanelLeft, Plus, Square, X } from "lucide-react";
@@ -24,6 +29,7 @@ export type ProjectTab = {
 };
 
 interface ProjectTabsProps {
+  vertical?: boolean;
   tabs: ProjectTab[];
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
@@ -38,12 +44,14 @@ interface ProjectTabsProps {
  * Individual tab component that uses the useProjectStatus hook.
  */
 function TabItem({
+  vertical = false,
   tab,
   onSelect,
   onClose,
   onKeyDown,
   tabRefCallback,
 }: {
+  vertical?: boolean;
   tab: ProjectTab;
   onSelect: () => void;
   onClose: () => void;
@@ -72,7 +80,7 @@ function TabItem({
     // Project accent as a 2px underline (inset shadow avoids affecting layout).
     // Dimmed on inactive tabs so the active tab stays the focal point.
     // color-mix (not a hex alpha suffix) because the accents are hsl() strings.
-    ...(tab.color
+    ...(tab.color && !vertical
       ? {
           boxShadow: `inset 0 -2px 0 0 ${
             tab.active ? tab.color : `color-mix(in srgb, ${tab.color} 50%, transparent)`
@@ -92,7 +100,7 @@ function TabItem({
       tabIndex={tab.active ? 0 : -1}
       onClick={onSelect}
       onKeyDown={onKeyDown}
-      className={`flex max-w-64 shrink-0 items-center gap-2 rounded-md px-3 py-2 text-xs font-medium cursor-pointer ${
+      className={`flex ${vertical ? "min-h-11 w-full justify-between" : "max-w-64"} shrink-0 items-center gap-2 rounded-md px-3 py-2 text-xs font-medium cursor-pointer ${
         tab.active
           ? "bg-maestro-bg text-maestro-text"
           : "text-maestro-muted hover:text-maestro-text"
@@ -136,6 +144,7 @@ function TabItem({
 }
 
 export function ProjectTabs({
+  vertical = false,
   tabs,
   onSelectTab,
   onCloseTab,
@@ -179,23 +188,27 @@ export function ProjectTabs({
   const handleTabKeyDown = useCallback(
     (e: React.KeyboardEvent, tab: ProjectTab) => {
       const isMeta = e.metaKey || e.ctrlKey;
+      const backwards = e.key === "ArrowLeft" || (vertical && e.key === "ArrowUp");
+      const forwards = e.key === "ArrowRight" || (vertical && e.key === "ArrowDown");
 
       // Cmd/Ctrl+Shift+Arrow: move tab position
-      if (isMeta && e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+      if (isMeta && e.shiftKey && (backwards || forwards)) {
         e.preventDefault();
-        onMoveTab(tab.id, e.key === "ArrowLeft" ? "left" : "right");
+        onMoveTab(tab.id, backwards ? "left" : "right");
         return;
       }
 
       // Arrow keys: switch tab focus
-      if (e.key === "ArrowRight") {
+      if (forwards) {
+        e.preventDefault();
         const idx = tabs.findIndex((t) => t.id === tab.id);
         const next = tabs[(idx + 1) % tabs.length];
         if (next) {
           onSelectTab(next.id);
           tabRefs.current.get(next.id)?.focus();
         }
-      } else if (e.key === "ArrowLeft") {
+      } else if (backwards) {
+        e.preventDefault();
         const idx = tabs.findIndex((t) => t.id === tab.id);
         const prev = tabs[(idx - 1 + tabs.length) % tabs.length];
         if (prev) {
@@ -207,8 +220,60 @@ export function ProjectTabs({
         onSelectTab(tab.id);
       }
     },
-    [tabs, onSelectTab, onMoveTab],
+    [tabs, onSelectTab, onMoveTab, vertical],
   );
+
+  if (vertical)
+    return (
+      <section className="flex max-h-[40%] min-h-24 shrink-0 flex-col border-b border-maestro-border p-3">
+        <div className="mb-2 flex shrink-0 items-center justify-between px-2">
+          <h2 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-maestro-muted">
+            Projects <span className="ml-1 opacity-60">{tabs.length}</span>
+          </h2>
+          <button
+            type="button"
+            onClick={onNewTab}
+            aria-label="Open new project"
+            className="rounded p-2 text-maestro-muted hover:bg-maestro-card hover:text-maestro-text"
+          >
+            <Plus size={15} />
+          </button>
+        </div>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          modifiers={[restrictToVerticalAxis]}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext items={tabs.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+            <div
+              role="tablist"
+              aria-label="Open projects"
+              aria-orientation="vertical"
+              className="flex min-h-0 flex-col gap-1 overflow-y-auto"
+            >
+              {tabs.length === 0 ? (
+                <span className="px-2 py-3 text-xs text-maestro-muted">
+                  Open a project to begin.
+                </span>
+              ) : (
+                tabs.map((tab) => (
+                  <TabItem
+                    key={tab.id}
+                    vertical
+                    tab={tab}
+                    onSelect={() => onSelectTab(tab.id)}
+                    onClose={() => onCloseTab(tab.id)}
+                    onKeyDown={(e) => handleTabKeyDown(e, tab)}
+                    tabRefCallback={setTabRef(tab.id)}
+                  />
+                ))
+              )}
+            </div>
+          </SortableContext>
+        </DndContext>
+      </section>
+    );
 
   return (
     <div

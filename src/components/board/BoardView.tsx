@@ -1,5 +1,5 @@
 import { HelpCircle, LayoutGrid, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { BoardCard, boardCardKey, cardAction } from "@/components/board/BoardCard";
 import { BoardColumn } from "@/components/board/BoardColumn";
@@ -110,6 +110,8 @@ export function BoardView({
   const actError = useActStore((s) => s.error);
   const watchdogProjects = useGitHubWatchdogStore(useShallow((s) => s.projects));
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [stageFilter, setStageFilter] = useState<BoardColumnKey | "all">("all");
+  const ledgerRef = useRef<HTMLDivElement>(null);
   const [peekItem, setPeekItem] = useState<Extract<BoardCardItem, { kind: "external" }> | null>(
     null,
   );
@@ -175,8 +177,10 @@ export function BoardView({
      explanation is hover-only (review finding 4 on 4f3f27a). */
   const flat = useMemo(
     () =>
-      BOARD_COLUMN_ORDER.flatMap((key) => columns[key]).filter((item) => cardAction(item).enabled),
-    [columns],
+      BOARD_COLUMN_ORDER.filter((key) => stageFilter === "all" || key === stageFilter)
+        .flatMap((key) => columns[key])
+        .filter((item) => cardAction(item).enabled),
+    [columns, stageFilter],
   );
 
   const activate = useCallback(
@@ -213,6 +217,18 @@ export function BoardView({
     }
   }, [flat, selectedKey]);
 
+  const focusSelectedCard = useCallback(() => {
+    const selected = ledgerRef.current?.querySelector<HTMLButtonElement>(
+      'button[data-selected="true"]',
+    );
+    selected?.focus({ preventScroll: true });
+    selected?.scrollIntoView?.({ block: "nearest" });
+  }, []);
+
+  useEffect(() => {
+    if (selectedKey && !overlayOpen && !peekItem) focusSelectedCard();
+  }, [selectedKey, overlayOpen, peekItem, focusSelectedCard]);
+
   /* Same for the peek: when its directory stops being live outside (the
      poll dropped it, or the session ended), a panel still saying "working
      outside Maestro" would be asserting a present tense nobody verified. */
@@ -240,22 +256,29 @@ export function BoardView({
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
       if (
-        target &&
-        (target.isContentEditable || /^(input|textarea|select)$/i.test(target.tagName))
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          target.closest("input, textarea, select") ||
+          (event.key === "Enter" && target.closest("button, a, summary, [role=tab]")))
       ) {
         return;
       }
       if (flat.length === 0) return;
 
       const at = flat.findIndex((item) => boardCardKey(item) === selectedKey);
-      if (event.key === "j") {
+      if (event.key === "j" || event.key === "k") {
         event.preventDefault();
-        setSelectedKey(boardCardKey(flat[at < 0 ? 0 : (at + 1) % flat.length]));
-      } else if (event.key === "k") {
-        event.preventDefault();
-        setSelectedKey(
-          boardCardKey(flat[at < 0 ? flat.length - 1 : (at - 1 + flat.length) % flat.length]),
-        );
+        const next =
+          event.key === "j"
+            ? at < 0
+              ? 0
+              : (at + 1) % flat.length
+            : at < 0
+              ? flat.length - 1
+              : (at - 1 + flat.length) % flat.length;
+        const key = boardCardKey(flat[next]);
+        setSelectedKey(key);
+        if (key === selectedKey) focusSelectedCard();
       } else if (event.key === "Enter" && at >= 0) {
         event.preventDefault();
         activate(flat[at]);
@@ -263,7 +286,7 @@ export function BoardView({
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [flat, selectedKey, activate, overlayOpen, peekItem]);
+  }, [flat, selectedKey, activate, overlayOpen, peekItem, focusSelectedCard]);
 
   /* A partially failed PR poll must not read as "nothing in review": naming
      the repos that failed is the difference between stale and wrong. */
@@ -307,15 +330,27 @@ export function BoardView({
     );
   }
 
+  const warnings = [
+    ...new Set([handoffsError, prsStale, processesError, actError].filter(Boolean)),
+  ];
+  const visibleStages = BOARD_COLUMN_ORDER.filter((key) =>
+    stageFilter === "all"
+      ? columns[key].length > 0 || staleFor(key) || noteFor(key)
+      : key === stageFilter,
+  );
+  const total = BOARD_COLUMN_ORDER.reduce((sum, key) => sum + columns[key].length, 0);
+
   return (
     /* z-45: above the zoomed grid pane (z-40) and below the Home/Factory/
        Landscape/Workflows overlays (z-50), which therefore keep stacking on
        top of the Board with no change to the overlay-exclusivity rules. */
     <div className="absolute inset-0 z-[45] flex flex-col bg-maestro-bg">
-      <div className="flex min-h-20 shrink-0 items-center gap-2 border-b border-maestro-border px-5 py-4">
+      <div className="flex min-h-28 shrink-0 flex-wrap items-center gap-2 px-8 py-6">
         <div className="min-w-0">
-          <h1 className="text-xl font-semibold tracking-tight text-maestro-text">Board</h1>
-          <p className="mt-1 text-xs text-maestro-muted">Live work across your projects.</p>
+          <h1 className="text-3xl font-semibold tracking-tight text-maestro-text">Work</h1>
+          <p className="mt-2 text-xs text-maestro-muted">
+            {total} items across your projects. One place to move them forward.
+          </p>
         </div>
         {actError && (
           <span
@@ -364,15 +399,58 @@ export function BoardView({
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-x-auto">
-        <div className="flex h-full min-w-[72rem] px-2 py-5">
-          {BOARD_COLUMN_ORDER.map((key) => {
+      <nav
+        className="flex shrink-0 gap-1 overflow-x-auto border-b border-maestro-border px-8"
+        aria-label="Work stages"
+      >
+        {(["all", ...BOARD_COLUMN_ORDER] as const).map((key) => (
+          <button
+            key={key}
+            type="button"
+            aria-label={`Filter ${key === "all" ? "All" : COLUMN_META[key].title}`}
+            aria-pressed={stageFilter === key}
+            onClick={() => setStageFilter(key)}
+            className={`shrink-0 border-b-2 px-3 py-3 text-xs transition-colors ${stageFilter === key ? "border-maestro-accent text-maestro-text" : "border-transparent text-maestro-muted hover:text-maestro-text"}`}
+          >
+            {key === "all" ? "All work" : COLUMN_META[key].title}
+            <span className="ml-2 font-mono text-[10px] text-maestro-muted">
+              {key === "all" ? total : columns[key].length}
+            </span>
+          </button>
+        ))}
+      </nav>
+      {warnings.length > 0 && (
+        <output className="border-b border-maestro-yellow/20 bg-maestro-yellow/5 px-8 py-3 text-xs text-maestro-yellow">
+          Some sources are out of date: {warnings.join(" · ")}
+        </output>
+      )}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div ref={ledgerRef} className="work-ledger flex min-h-full flex-col gap-8 px-8 py-6">
+          {visibleStages.length === 0 && (
+            <div className="flex flex-1 flex-col items-start justify-center py-16">
+              <span className="mb-4 text-[10px] uppercase tracking-[0.18em] text-maestro-muted">
+                {warnings.length ? "Incomplete snapshot" : "Clear workspace"}
+              </span>
+              <h2 className="text-2xl font-medium tracking-tight text-maestro-text">
+                {warnings.length ? "Work sources unavailable" : "No live work yet"}
+              </h2>
+              <p className="mt-3 max-w-md text-sm leading-relaxed text-maestro-muted">
+                Start a terminal in one of your projects. Sessions, handoffs and pull requests will
+                appear here as work progresses.
+              </p>
+              <button
+                type="button"
+                onClick={onShowGrid}
+                className="mt-6 rounded-md border border-maestro-border px-4 py-2 text-xs text-maestro-text hover:bg-maestro-card"
+              >
+                Open terminals
+              </button>
+            </div>
+          )}
+          {visibleStages.map((key) => {
             const items = columns[key];
             return (
-              <div
-                key={key}
-                className="workspace-board-column flex min-w-0 flex-1 flex-col overflow-y-auto"
-              >
+              <div key={key} className="flex min-w-0 flex-col">
                 <BoardColumn
                   title={COLUMN_META[key].title}
                   count={items.length}

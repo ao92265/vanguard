@@ -157,14 +157,62 @@ describe("BoardView", () => {
     useGitHubWatchdogStore.setState({ projects: [] });
   });
 
-  it("renders all six columns, each empty column saying what is empty", () => {
+  it("offers every stage without filling the empty ledger with placeholder columns", () => {
     renderBoard();
 
     for (const title of ["Suggested", "Planning", "Building", "Checking", "Review", "Done"]) {
-      expect(screen.getByRole("region", { name: title })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: `Filter ${title}` })).toBeInTheDocument();
     }
-    expect(screen.getByText("No handoffs are waiting on disk.")).toBeInTheDocument();
+    expect(screen.getByText("No live work yet")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Filter Building" }));
     expect(screen.getByText("Nothing is being built.")).toBeInTheDocument();
+  });
+
+  it("filters visible work and keyboard activation to the chosen stage", () => {
+    useSessionStore.setState({ sessions: [session(1, "Working"), session(2, "Done")] });
+    useWorkspaceStore.setState({ tabs: [tab()] });
+    const handlers = renderBoard();
+    fireEvent.keyDown(window, { key: "j" });
+    fireEvent.click(screen.getByRole("button", { name: "Filter Done" }));
+    expect(screen.queryByText("doing step 1")).not.toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "Enter" });
+    expect(handlers.onNavigateSession).not.toHaveBeenCalled();
+    fireEvent.keyDown(window, { key: "j" });
+    fireEvent.keyDown(window, { key: "Enter" });
+    expect(handlers.onNavigateSession).toHaveBeenCalledWith("t1", 2);
+  });
+
+  it("does not activate a selected card when Enter is used on a filter button", () => {
+    useSessionStore.setState({ sessions: [session(1, "Working")] });
+    useWorkspaceStore.setState({ tabs: [tab()] });
+    const handlers = renderBoard();
+    fireEvent.keyDown(window, { key: "j" });
+    fireEvent.keyDown(screen.getByRole("button", { name: "Filter Review" }), { key: "Enter" });
+    expect(handlers.onNavigateSession).not.toHaveBeenCalled();
+  });
+
+  it("moves keyboard focus from a filter into visible work with j", () => {
+    useSessionStore.setState({ sessions: [session(1, "Working")] });
+    useWorkspaceStore.setState({ tabs: [tab()] });
+    const handlers = renderBoard();
+    const filter = screen.getByRole("button", { name: "Filter Building" });
+    fireEvent.click(filter);
+    filter.focus();
+    fireEvent.keyDown(filter, { key: "j" });
+    expect(selectedCard()).toHaveFocus();
+    expect(selectedCard()?.textContent).toContain("doing step 1");
+    filter.focus();
+    fireEvent.keyDown(filter, { key: "j" });
+    expect(selectedCard()).toHaveFocus();
+    fireEvent.click(document.activeElement as HTMLElement);
+    expect(handlers.onNavigateSession).toHaveBeenCalledWith("t1", 1);
+  });
+
+  it("keeps failed-source warnings visible when that stage is filtered out", () => {
+    useBandStore.setState({ processesError: "Process scan unavailable" });
+    renderBoard();
+    fireEvent.click(screen.getByRole("button", { name: "Filter Done" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Process scan unavailable");
   });
 
   it("routes live work into the column its stage says it is in", () => {
@@ -396,6 +444,7 @@ describe("BoardView", () => {
     renderBoard();
 
     expect(column("Suggested").getByText("STALE")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Filter Building" }));
     expect(column("Building").queryByText("STALE")).not.toBeInTheDocument();
   });
 
@@ -426,6 +475,7 @@ describe("BoardView", () => {
 
     expect(column("Building").getByText("STALE")).toBeInTheDocument();
     expect(column("Suggested").getByText("STALE")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Filter Review" }));
     expect(column("Review").queryByText("STALE")).not.toBeInTheDocument();
   });
 

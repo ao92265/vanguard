@@ -61,6 +61,7 @@ import { NotificationsSettingsSection } from "./NotificationsSettingsSection";
 import { cardClass, divider, SectionHeader } from "./sectionChrome";
 
 interface SidebarProps {
+  projectNavigation?: React.ReactNode;
   collapsed?: boolean;
   onCollapse?: () => void;
   /** Active sidebar tab — lifted to App so Alt+1-3 shortcuts can drive it. */
@@ -102,6 +103,7 @@ function loadSavedWidth(): number {
 /* ================================================================ */
 
 export function Sidebar({
+  projectNavigation,
   collapsed,
   onCollapse,
   activeTab,
@@ -209,6 +211,7 @@ export function Sidebar({
       style={{ width: collapsed ? 0 : width, visibility: collapsed ? "hidden" : "visible" }}
       className={`workspace-sidebar no-select relative flex h-full min-w-0 shrink-0 flex-col border-r border-maestro-border bg-maestro-surface ${collapsed ? "overflow-hidden border-r-0" : ""}`}
     >
+      {projectNavigation}
       {/* Tab bar */}
       <SidebarTabBar active={activeTab} onSelect={onSelectTab} compact={width < 260} />
 

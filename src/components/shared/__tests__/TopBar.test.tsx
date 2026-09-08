@@ -33,6 +33,43 @@ describe("TopBar", () => {
     useHealthStore.setState({ flags: [] });
   });
 
+  it("keeps the current rail destination open when selected again", () => {
+    const toggle = vi.fn();
+    render(
+      <TopBar
+        layout="rail"
+        sidebarOpen
+        onToggleSidebar={() => {}}
+        homeViewOpen
+        onToggleHomeView={toggle}
+      />,
+    );
+    const inbox = screen.getByRole("button", { name: "Inbox" });
+    expect(inbox).toHaveAttribute("aria-current", "page");
+    fireEvent.click(inbox);
+    expect(toggle).not.toHaveBeenCalled();
+  });
+
+  it("routes Work and Terminals from the rail to their explicit destinations", () => {
+    const select = vi.fn();
+    const { rerender } = render(
+      <TopBar layout="rail" sidebarOpen onToggleSidebar={() => {}} onSetBoardView={select} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Work" }));
+    expect(select).toHaveBeenLastCalledWith(true);
+    rerender(
+      <TopBar
+        layout="rail"
+        sidebarOpen
+        boardViewOpen
+        onToggleSidebar={() => {}}
+        onSetBoardView={select}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Terminals" }));
+    expect(select).toHaveBeenLastCalledWith(false);
+  });
+
   it("exposes the selected workspace view to keyboard and screen-reader users", () => {
     const { rerender } = render(
       <TopBar
