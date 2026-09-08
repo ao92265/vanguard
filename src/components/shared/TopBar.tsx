@@ -169,8 +169,19 @@ export function TopBar({
         setAddMenuOpen(false);
       }
     };
+    const onEscape = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || !addMenuRef.current?.contains(e.target as Node)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setAddMenuOpen(false);
+      addMenuRef.current.querySelector("button")?.focus();
+    };
     document.addEventListener("mousedown", onPointerDown);
-    return () => document.removeEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onEscape);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onEscape);
+    };
   }, [addMenuOpen]);
 
   // Leaving eagle view (or losing all projects) drops the menu.
@@ -186,12 +197,27 @@ export function TopBar({
         setMoreMenuOpen(false);
       }
     };
+    const onEscape = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || !moreMenuRef.current?.contains(e.target as Node)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setMoreMenuOpen(false);
+      moreMenuRef.current.querySelector("button")?.focus();
+    };
     document.addEventListener("mousedown", onPointerDown);
-    return () => document.removeEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onEscape);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onEscape);
+    };
   }, [moreMenuOpen]);
 
   return (
-    <div data-tauri-drag-region className="no-select flex h-10 flex-1 items-center bg-maestro-bg">
+    <nav
+      aria-label="Workspace"
+      data-tauri-drag-region
+      className="workspace-toolbar no-select flex min-w-0 flex-1 items-center bg-maestro-surface"
+    >
       {/* Left: collapse toggle + branch area (inset from CSS var for macOS traffic lights) */}
       <div
         className="flex items-center gap-2 pr-2"
@@ -215,10 +241,10 @@ export function TopBar({
       </div>
 
       {/* Center: drag region */}
-      <div data-tauri-drag-region className="flex-1" />
+      <div data-tauri-drag-region className="w-1 shrink-0" />
 
       {/* Right: action icons */}
-      <div className="flex items-center gap-0.5 mr-1">
+      <div className="workspace-actions mr-2 flex min-w-0 flex-1 flex-wrap items-center gap-1 py-1">
         {/* Shell mode. The Board is a layer over the permanently mounted
             grid, so "Grid" closes the layer rather than unmounting anything. */}
         {onSetBoardView && (
@@ -287,6 +313,7 @@ export function TopBar({
                   : "text-maestro-muted hover:bg-maestro-card hover:text-maestro-text"
               }`}
               aria-label="Add terminal to project"
+              aria-expanded={addMenuOpen}
               title={titleWithShortcut("New terminal — pick a project", modLabel(), "T")}
             >
               <Plus size={14} />
@@ -333,6 +360,7 @@ export function TopBar({
                 : "text-maestro-muted hover:bg-maestro-card hover:text-maestro-text"
             }`}
             aria-label="Home"
+            aria-pressed={homeViewOpen}
             title={titleWithShortcut(
               "Home — blocked on you, landed since you looked, running",
               modLabel(),
@@ -340,6 +368,7 @@ export function TopBar({
             )}
           >
             <Home size={14} />
+            <span className="workspace-nav-label">Home</span>
             {homeAttention && !homeViewOpen && (
               <span
                 aria-hidden="true"
@@ -358,6 +387,7 @@ export function TopBar({
                 : "text-maestro-muted hover:bg-maestro-card hover:text-maestro-text"
             }`}
             aria-label="Factory"
+            aria-pressed={factoryViewOpen}
             title={titleWithShortcut(
               "Factory — hand ACT a spec, watch the run, get the PR",
               modLabel(),
@@ -365,6 +395,7 @@ export function TopBar({
             )}
           >
             <Factory size={14} />
+            <span className="workspace-nav-label">Factory</span>
           </button>
         )}
         {onToggleOrchestratorView && (
@@ -377,6 +408,7 @@ export function TopBar({
                 : "text-maestro-muted hover:bg-maestro-card hover:text-maestro-text"
             }`}
             aria-label="Orchestrator"
+            aria-pressed={orchestratorViewOpen}
             title={titleWithShortcut(
               "Orchestrator — set a goal, scope the sessions, approve what it proposes",
               modLabel(),
@@ -384,6 +416,7 @@ export function TopBar({
             )}
           >
             <RadioTower size={14} />
+            <span className="workspace-nav-label">Orchestrator</span>
           </button>
         )}
         {onTogglePulseView && (
@@ -396,6 +429,7 @@ export function TopBar({
                 : "text-maestro-muted hover:bg-maestro-card hover:text-maestro-text"
             }`}
             aria-label="Pulse"
+            aria-pressed={pulseViewOpen}
             title={titleWithShortcut(
               "Pulse — today's timeline, flow score and metrics",
               modLabel(),
@@ -403,6 +437,7 @@ export function TopBar({
             )}
           >
             <Gauge size={14} />
+            <span className="workspace-nav-label">Pulse</span>
           </button>
         )}
         {onToggleEagleView && (
@@ -415,6 +450,7 @@ export function TopBar({
                 : "text-maestro-muted hover:bg-maestro-card hover:text-maestro-text"
             }`}
             aria-label="Eagle view"
+            aria-pressed={eagleView}
             title={titleWithShortcut("Eagle view", modLabel(), "G")}
           >
             <Bird size={14} />
@@ -430,6 +466,7 @@ export function TopBar({
                 : "text-maestro-muted hover:bg-maestro-card hover:text-maestro-text"
             }`}
             aria-label="Processes"
+            aria-pressed={processesPanelOpen}
             title={titleWithShortcut("Processes", modLabel(), "4")}
           >
             <Activity size={14} />
@@ -446,6 +483,7 @@ export function TopBar({
                 : "text-maestro-muted hover:bg-maestro-card hover:text-maestro-text"
             }`}
             aria-label="AI"
+            aria-pressed={aiPanelOpen}
             title={titleWithShortcut("AI — daily report and plan", modLabel(), "6")}
           >
             <Sparkles size={14} />
@@ -462,6 +500,7 @@ export function TopBar({
               : "text-maestro-muted hover:bg-maestro-card hover:text-maestro-text"
           }`}
           aria-label="Git"
+          aria-pressed={!!gitPanelOpen}
           title={titleWithShortcut("Git", modLabel(), "2")}
         >
           <GitMerge size={14} />
@@ -480,6 +519,7 @@ export function TopBar({
                   : "text-maestro-muted hover:bg-maestro-card hover:text-maestro-text"
               }`}
               aria-label="More"
+              aria-expanded={moreMenuOpen}
               title="More — Landscape, Memory, Workflows, Extensions"
             >
               <MoreHorizontal size={14} />
@@ -580,6 +620,6 @@ export function TopBar({
           </button>
         </div>
       )}
-    </div>
+    </nav>
   );
 }

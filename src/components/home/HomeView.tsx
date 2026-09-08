@@ -71,7 +71,7 @@ function relAgo(iso: string): string {
 }
 
 const rowClass =
-  "flex w-full items-center gap-2 rounded border border-maestro-border bg-maestro-card px-3 py-2 text-left transition-colors hover:border-maestro-muted/50";
+  "flex min-h-14 w-full items-center gap-3 rounded-lg border border-maestro-border/60 bg-maestro-surface px-4 py-3 text-left hover:border-maestro-muted";
 
 function StatusBadge({ status }: { status: BackendSessionStatus }) {
   const badge = SESSION_STATUS_BADGES[status];
@@ -337,12 +337,12 @@ function Band({
 }) {
   return (
     <section>
-      <div className="mb-1.5 flex items-center gap-1.5">
+      <div className="mb-3 flex items-center gap-2">
         {icon}
-        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-maestro-muted">
-          {title}
-        </h2>
-        <span className="text-[11px] text-maestro-muted/70">{items.length}</span>
+        <h2 className="text-sm font-semibold tracking-tight text-maestro-text">{title}</h2>
+        <span className="rounded bg-maestro-card px-1.5 py-0.5 font-mono text-[11px] text-maestro-muted">
+          {items.length}
+        </span>
         {stale && (
           <span
             className={`${badgeBaseClass} bg-maestro-yellow/15 text-maestro-yellow`}
@@ -355,7 +355,7 @@ function Band({
         {action}
       </div>
       {items.length === 0 ? (
-        <p className="rounded border border-dashed border-maestro-border px-3 py-2 text-[11px] text-maestro-muted/70">
+        <p className="border-t border-maestro-border/60 py-4 text-xs text-maestro-muted">
           {emptyText}
         </p>
       ) : (
@@ -549,6 +549,7 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
               type="button"
               onClick={() => setStatusFilter(active ? null : status)}
               disabled={count === 0 && !active}
+              aria-pressed={active}
               className={`flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] transition-colors ${
                 active
                   ? "border-maestro-accent/60 text-maestro-text"
@@ -593,7 +594,15 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
 
       {/* Bands */}
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-4">
+        <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-6 py-8">
+          <header>
+            <h1 className="text-2xl font-semibold tracking-tight text-maestro-text">
+              Decision queue
+            </h1>
+            <p className="mt-2 text-sm text-maestro-muted">
+              Review blocked agents, recent results and running sessions.
+            </p>
+          </header>
           <ClosedBatchShelf onRestore={handleRestore} />
           <Band
             title="Blocked on you"

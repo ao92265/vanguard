@@ -1094,7 +1094,7 @@ function App() {
 
   return (
     <div
-      className="flex h-screen w-screen flex-col bg-maestro-bg"
+      className="vanguard-workspace flex h-dvh w-full flex-col bg-maestro-bg"
       style={{ ["--mac-title-bar-inset" as string]: macTitleBarInset }}
     >
       {/* Project tabs — full width at top (with window controls) */}
@@ -1135,7 +1135,7 @@ function App() {
         {/* Right column: top bar + content + bottom bar */}
         <div className="flex flex-1 flex-col overflow-hidden">
           {/* Top bar row - includes git panel header when open */}
-          <div className="flex h-10 shrink-0 bg-maestro-bg">
+          <div className="relative z-10 flex min-h-12 shrink-0 border-b border-maestro-border bg-maestro-surface">
             {/* TopBar takes flex-1 to fill available space */}
             <TopBar
               sidebarOpen={sidebarOpen}
@@ -1225,7 +1225,7 @@ function App() {
           </div>
 
           {/* Content area (main + optional git panel) */}
-          <div className="flex flex-1 overflow-hidden">
+          <div className="relative isolate z-0 flex flex-1 overflow-hidden">
             {/* Main content - MultiProjectView keeps all projects alive */}
             <main className="relative flex-1 overflow-hidden bg-maestro-bg">
               <MultiProjectView

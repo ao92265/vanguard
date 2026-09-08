@@ -29,11 +29,11 @@ export function BoardColumn({
 }) {
   return (
     <section className="flex min-w-0 flex-col" aria-label={title}>
-      <div className="mb-1.5 flex items-center gap-1.5">
-        <h2 className="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-maestro-muted">
-          {title}
-        </h2>
-        <span className="shrink-0 text-[11px] text-maestro-muted/70">{count}</span>
+      <div className="mb-4 flex min-h-7 items-center gap-2">
+        <h2 className="shrink-0 text-[13px] font-semibold text-maestro-text">{title}</h2>
+        <span className="shrink-0 rounded bg-maestro-card px-1.5 py-0.5 font-mono text-[11px] text-maestro-muted">
+          {count}
+        </span>
         {stale && (
           <span
             className={`${badgeBaseClass} bg-maestro-yellow/15 text-maestro-yellow`}
@@ -46,11 +46,9 @@ export function BoardColumn({
         {note}
       </div>
       {count === 0 ? (
-        <p className="rounded border border-dashed border-maestro-border px-2 py-2 text-[11px] text-maestro-muted/70">
-          {emptyText}
-        </p>
+        <p className="py-3 text-xs leading-relaxed text-maestro-muted">{emptyText}</p>
       ) : (
-        <div className="flex flex-col gap-1.5">{children}</div>
+        <div className="flex flex-col gap-2">{children}</div>
       )}
     </section>
   );

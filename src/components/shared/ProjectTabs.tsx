@@ -92,22 +92,22 @@ function TabItem({
       tabIndex={tab.active ? 0 : -1}
       onClick={onSelect}
       onKeyDown={onKeyDown}
-      className={`flex items-center gap-1.5 rounded-t px-2 py-1.5 text-xs font-medium cursor-pointer ${
+      className={`flex max-w-64 shrink-0 items-center gap-2 rounded-md px-3 py-2 text-xs font-medium cursor-pointer ${
         tab.active
           ? "bg-maestro-bg text-maestro-text"
           : "text-maestro-muted hover:text-maestro-text"
       }`}
     >
-      <span className="flex items-center gap-1.5">
+      <span className="flex min-w-0 items-center gap-2">
         <span
-          className={`h-2 w-2 rounded-full ${STATUS_COLORS[status]} ${
+          className={`h-2 w-2 shrink-0 rounded-full ${STATUS_COLORS[status]} ${
             shouldPulse ? "animate-pulse" : ""
           }`}
         />
-        <span>{tab.name}</span>
+        <span className="truncate">{tab.name}</span>
         {sessionCount > 0 && (
           <span
-            className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+            className={`shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
               status === "needs-input"
                 ? "bg-maestro-accent/20 text-maestro-accent"
                 : status === "working"
@@ -126,7 +126,7 @@ function TabItem({
           onClose();
         }}
         onPointerDown={(e) => e.stopPropagation()}
-        className="ml-1 rounded p-0.5 hover:bg-maestro-border"
+        className="ml-1 shrink-0 rounded p-0.5 hover:bg-maestro-border"
         aria-label={`Close ${tab.name}`}
       >
         <X size={10} />
@@ -213,22 +213,30 @@ export function ProjectTabs({
   return (
     <div
       data-tauri-drag-region
-      className="theme-transition no-select flex h-9 items-center border-b border-maestro-border bg-maestro-surface"
+      className="project-strip theme-transition no-select flex h-12 shrink-0 items-center border-b border-maestro-border bg-maestro-surface"
     >
       {/* Left: sidebar toggle + tabs (inset from CSS var for macOS traffic lights) */}
       <div
-        className="flex items-center gap-0.5 pr-1.5"
+        data-tauri-drag-region
+        className="flex min-w-0 flex-1 items-center gap-1.5 pr-3"
         style={{ paddingLeft: "max(var(--mac-title-bar-inset, 0px), 6px)" }}
       >
+        <div className="flex shrink-0 items-center gap-2 px-2" data-tauri-drag-region>
+          <img src="/favicon.png" alt="" className="h-6 w-6" />
+          <span className="hidden text-[13px] font-semibold tracking-tight text-maestro-text lg:inline">
+            Vanguard
+          </span>
+        </div>
         <button
           type="button"
           onClick={onToggleSidebar}
-          className={`rounded p-1.5 transition-colors ${
+          className={`shrink-0 rounded p-2 transition-colors ${
             sidebarOpen
               ? "text-maestro-accent hover:bg-maestro-accent/10"
               : "text-maestro-muted hover:bg-maestro-border hover:text-maestro-text"
           }`}
           aria-label="Toggle sidebar"
+          aria-pressed={sidebarOpen}
         >
           <PanelLeft size={14} />
         </button>
@@ -242,7 +250,11 @@ export function ProjectTabs({
           onDragEnd={handleDragEnd}
         >
           <SortableContext items={tabs.map((t) => t.id)} strategy={horizontalListSortingStrategy}>
-            <div role="tablist" aria-label="Open projects" className="flex items-center gap-0.5">
+            <div
+              role="tablist"
+              aria-label="Open projects"
+              className="scrollbar-none flex min-w-0 items-center gap-1 overflow-x-auto"
+            >
               {tabs.length === 0 ? (
                 <span className="px-2 text-xs text-maestro-muted">No projects</span>
               ) : (
@@ -264,7 +276,7 @@ export function ProjectTabs({
         <button
           type="button"
           onClick={onNewTab}
-          className="rounded p-1 text-maestro-muted hover:bg-maestro-border hover:text-maestro-text"
+          className="shrink-0 rounded p-2 text-maestro-muted hover:bg-maestro-border hover:text-maestro-text"
           aria-label="Open new project"
         >
           <Plus size={14} />
@@ -272,7 +284,7 @@ export function ProjectTabs({
       </div>
 
       {/* Center: drag region fills remaining space */}
-      <div data-tauri-drag-region className="flex-1" />
+      <div data-tauri-drag-region className="h-full w-8 shrink-0" />
 
       {/* Right: window controls (hidden on macOS — custom traffic lights in row instead) */}
       {!isMac() && (

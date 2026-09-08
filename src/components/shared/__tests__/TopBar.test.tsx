@@ -33,6 +33,58 @@ describe("TopBar", () => {
     useHealthStore.setState({ flags: [] });
   });
 
+  it("exposes the selected workspace view to keyboard and screen-reader users", () => {
+    const { rerender } = render(
+      <TopBar
+        sidebarOpen
+        hideWindowControls
+        onToggleSidebar={() => {}}
+        onToggleHomeView={() => {}}
+        homeViewOpen
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Home" })).toHaveAttribute("aria-pressed", "true");
+    rerender(
+      <TopBar
+        sidebarOpen
+        hideWindowControls
+        onToggleSidebar={() => {}}
+        onToggleHomeView={() => {}}
+        homeViewOpen={false}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Home" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("closes More with Escape and returns keyboard focus to its trigger", () => {
+    renderTopBar();
+    const trigger = screen.getByRole("button", { name: "More" });
+    fireEvent.click(trigger);
+    const item = screen.getByRole("button", { name: "Landscape" });
+    item.focus();
+    fireEvent.keyDown(item, { key: "Escape" });
+    expect(screen.queryByRole("button", { name: "Landscape" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("closes the project picker with Escape without launching a terminal", () => {
+    const add = vi.fn();
+    renderTopBar({
+      eagleView: true,
+      onAddSessionToProject: add,
+      eagleProjects: [{ tabId: "repo", name: "Vanguard", color: "violet", atMax: false }],
+    });
+    const trigger = screen.getByRole("button", { name: "Add terminal to project" });
+    fireEvent.click(trigger);
+    const project = screen.getByRole("button", { name: "Vanguard" });
+    project.focus();
+    fireEvent.keyDown(project, { key: "Escape" });
+    expect(screen.queryByRole("button", { name: "Vanguard" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+    expect(add).not.toHaveBeenCalled();
+  });
+
   it("does not render the buttons cut by the declutter (Notes, Second Brain, Launch)", () => {
     renderTopBar();
     for (const label of ["Notes", "Second Brain", "Launch"]) {

@@ -141,10 +141,8 @@ export function BoardCard({
   const Icon = cardIcon(item);
 
   const shell = [
-    "flex w-full flex-col rounded-md border bg-maestro-card px-2 py-1.5 text-left transition-colors",
-    item.needsYou
-      ? "border-maestro-accent/70 shadow-[0_0_10px_rgb(var(--maestro-accent)/0.35)]"
-      : "border-maestro-border",
+    "flex w-full flex-col rounded-lg border bg-maestro-surface px-3 py-3 text-left",
+    item.needsYou ? "border-maestro-accent" : "border-maestro-border/70",
     selected ? "ring-1 ring-maestro-text/50" : "",
   ].join(" ");
 

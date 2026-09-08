@@ -206,16 +206,14 @@ export function Sidebar({
     // flex item's min-width:auto lets wide tab content push the pane wider,
     // so switching tabs used to change the sidebar width.
     <aside
-      style={{ width: collapsed ? 0 : width }}
-      className={`theme-transition no-select relative flex h-full min-w-0 shrink-0 flex-col border-r border-maestro-border bg-maestro-surface ${
-        isDragging ? "" : "transition-all duration-200 ease-out"
-      } ${collapsed ? "overflow-hidden border-r-0 opacity-0" : "opacity-100"}`}
+      style={{ width: collapsed ? 0 : width, visibility: collapsed ? "hidden" : "visible" }}
+      className={`workspace-sidebar no-select relative flex h-full min-w-0 shrink-0 flex-col border-r border-maestro-border bg-maestro-surface ${collapsed ? "overflow-hidden border-r-0" : ""}`}
     >
       {/* Tab bar */}
-      <SidebarTabBar active={activeTab} onSelect={onSelectTab} />
+      <SidebarTabBar active={activeTab} onSelect={onSelectTab} compact={width < 260} />
 
       {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden px-2.5 py-3">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-3 py-4">
         <ConfigTab
           activeSidebarTab={activeTab}
           theme={theme}
@@ -298,9 +296,11 @@ export function sidebarTabShortcutTransition(
 function SidebarTabBar({
   active,
   onSelect,
+  compact,
 }: {
   active: SidebarTabId;
   onSelect: (tab: SidebarTabId) => void;
+  compact: boolean;
 }) {
   // Extensions (infra) has no strip slot of its own — it's reached via the
   // TopBar's More menu — but while it IS the active tab the strip must
@@ -315,28 +315,32 @@ function SidebarTabBar({
     // Equal-width columns (auto-cols-fr): every tab gets the same width
     // regardless of its label, sized by the available space, with a small
     // gap between tab names.
-    <div className="grid shrink-0 auto-cols-fr grid-flow-col gap-1 border-b border-maestro-border/60 px-1">
+    <nav
+      aria-label="Sidebar"
+      className="grid h-12 shrink-0 auto-cols-fr grid-flow-col items-center gap-1 border-b border-maestro-border px-2"
+    >
       {tabs.map(({ id, label, icon: Icon }, index) => (
         <button
           key={id}
           type="button"
           onClick={() => onSelect(id)}
+          aria-pressed={active === id}
           title={
             id === "infra"
               ? "Extensions — MCP servers, plugins, skills (opened from the More menu)"
               : titleWithShortcut(label, altLabel(), String(index + 1))
           }
-          className={`flex min-w-0 flex-col items-center gap-0.5 border-b-2 px-0.5 py-1.5 text-[9px] font-semibold uppercase tracking-wide transition-colors ${
+          className={`flex min-w-0 items-center justify-center gap-1.5 rounded-md px-1 py-2 text-[11px] font-medium ${
             active === id
-              ? "border-maestro-accent text-maestro-accent"
-              : "border-transparent text-maestro-muted hover:text-maestro-text"
+              ? "bg-maestro-accent/10 text-maestro-accent"
+              : "text-maestro-muted hover:bg-maestro-card hover:text-maestro-text"
           }`}
         >
-          <Icon size={14} />
+          {!compact && <Icon size={14} />}
           <span className="truncate">{label}</span>
         </button>
       ))}
-    </div>
+    </nav>
   );
 }
 
