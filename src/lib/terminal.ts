@@ -30,13 +30,18 @@ export async function spawnShell(cwd?: string, env?: Record<string, string>): Pr
  * message itself is an ArrayBuffer / view / Array; anything else is
  * `JSON.stringify`'d, which turns each image byte into ~4 characters of decimal
  * text on the main thread. The media type rides along as a request header.
+ *
+ * Resolves with the staged path the backend pasted into the PTY. That path is
+ * generated backend-side (`/tmp/maestro-image-<uuid>/image.<ext>`, or the same
+ * name under the system temp dir when the session has no SSH destination), so
+ * it is the only honest thing a delivery UI can show the user.
  */
 export async function savePastedImage(
   data: Uint8Array,
   mediaType: string,
   sessionId: number,
-): Promise<void> {
-  return invoke<void>("save_pasted_image", data, {
+): Promise<string> {
+  return invoke<string>("save_pasted_image", data, {
     headers: { "media-type": mediaType, "session-id": String(sessionId) },
   });
 }

@@ -67,8 +67,12 @@ describe("PreLaunchCard branch creation", () => {
 
   function openBranchDropdown() {
     // The branch selector button contains the display branch name ("main")
-    // and a GitBranch icon. Find and click it.
-    const branchButton = screen.getByText("main").closest("button");
+    // and a GitBranch icon. The resolves-to summary names the same branch, so
+    // take the occurrence that is inside a button.
+    const branchButton = screen
+      .getAllByText("main")
+      .map((node) => node.closest("button"))
+      .find((node): node is HTMLButtonElement => node !== null);
     if (branchButton) fireEvent.click(branchButton);
   }
 
@@ -258,9 +262,13 @@ describe("PreLaunchCard AI Mode Selection", () => {
 
       openModeDropdown();
 
-      // Click on the provider - use getAllByText and click the last one (in dropdown)
-      const providerButtons = screen.getAllByText(label);
-      // The last one should be in the dropdown
+      // Click on the provider. The trigger, the dropdown option and the
+      // resolves-to summary can all carry the label; only the first two sit
+      // inside a button, and the dropdown option is the later of those.
+      const providerButtons = screen
+        .getAllByText(label)
+        .map((node) => node.closest("button"))
+        .filter((node): node is HTMLButtonElement => node !== null);
       const providerButton = providerButtons[providerButtons.length - 1];
       fireEvent.click(providerButton);
 
@@ -271,5 +279,115 @@ describe("PreLaunchCard AI Mode Selection", () => {
       // Cleanup for next iteration
       cleanup();
     }
+  });
+});
+
+describe("PreLaunchCard resolves-to panel", () => {
+  const makeSlot = (overrides?: Partial<SessionSlot>): SessionSlot => ({
+    id: "slot-1",
+    mode: "Claude",
+    branch: null,
+    customName: "",
+    worktreeMode: "project",
+    sessionId: null,
+    worktreePath: null,
+    worktreeWarning: null,
+    enabledMcpServers: [],
+    enabledSkills: [],
+    enabledPlugins: [],
+    ...overrides,
+  });
+
+  const baseProps = {
+    projectPath: "/tmp/test-repo",
+    branches: [
+      { name: "main", isRemote: false, isCurrent: true, hasWorktree: false },
+      { name: "develop", isRemote: false, isCurrent: false, hasWorktree: false },
+    ],
+    isLoadingBranches: false,
+    isGitRepo: true,
+    mcpServers: [],
+    skills: [],
+    plugins: [],
+    onCustomNameChange: vi.fn(),
+    onModeChange: vi.fn(),
+    onBranchChange: vi.fn(),
+    onWorktreeModeChange: vi.fn(),
+    onMcpToggle: vi.fn(),
+    onSkillToggle: vi.fn(),
+    onPluginToggle: vi.fn(),
+    onMcpSelectAll: vi.fn(),
+    onMcpUnselectAll: vi.fn(),
+    onPluginsSelectAll: vi.fn(),
+    onPluginsUnselectAll: vi.fn(),
+    onLaunch: vi.fn(),
+    onRemove: vi.fn(),
+    onResumeSessionChange: vi.fn(),
+  };
+
+  function summary() {
+    return screen.getByRole("region", { name: "Resolves to" });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("offers no execution host, because this app has no remote launcher", () => {
+    render(<PreLaunchCard {...baseProps} slot={makeSlot()} />);
+    expect(screen.queryByText(/execution host/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/reachable/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/ed25519/i)).not.toBeInTheDocument();
+    expect(summary()).toHaveTextContent("this machine");
+  });
+
+  it("names the directory the launch will actually use", () => {
+    render(<PreLaunchCard {...baseProps} slot={makeSlot({ worktreeMode: "project" })} />);
+    expect(summary()).toHaveTextContent("/tmp/test-repo");
+  });
+
+  it("says a new worktree does not exist yet rather than inventing its path", () => {
+    render(<PreLaunchCard {...baseProps} slot={makeSlot({ worktreeMode: "new" })} />);
+    expect(summary()).toHaveTextContent("a new worktree, created at launch");
+    expect(summary()).not.toHaveTextContent("/tmp/test-repo/");
+  });
+
+  it("prefers a recovered working directory over the project path", () => {
+    render(
+      <PreLaunchCard
+        {...baseProps}
+        slot={makeSlot({ worktreeMode: "auto", workingDirOverride: "/tmp/wt/feature" })}
+      />,
+    );
+    expect(summary()).toHaveTextContent("/tmp/wt/feature");
+  });
+
+  it("summarises the agent, branch and integrations the slot really carries", () => {
+    render(
+      <PreLaunchCard
+        {...baseProps}
+        slot={makeSlot({
+          mode: "Codex",
+          branch: "develop",
+          enabledMcpServers: ["one", "two"],
+          enabledPlugins: ["p"],
+          enabledSkills: ["s", "t", "u"],
+        })}
+      />,
+    );
+    const panel = summary();
+    expect(panel).toHaveTextContent("Codex");
+    expect(panel).toHaveTextContent("develop");
+    expect(panel).toHaveTextContent("2 MCP servers");
+    expect(panel).toHaveTextContent("1 plugin");
+    expect(panel).toHaveTextContent("3 skills");
+  });
+
+  it("states image staging and retention as this backend performs them", () => {
+    render(<PreLaunchCard {...baseProps} slot={makeSlot()} />);
+    const panel = summary();
+    expect(panel).toHaveTextContent("kept for 24 hours");
+    expect(panel).toHaveTextContent("removed when the session closes");
+    expect(panel).not.toHaveTextContent("turn ends");
   });
 });

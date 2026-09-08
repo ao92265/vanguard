@@ -23,7 +23,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { type IconComponent, OpenCodeIcon } from "@/components/icons";
 
 import type { BranchWithWorktreeStatus } from "@/lib/git";
@@ -161,6 +161,11 @@ const AI_MODES: {
 
 function getModeConfig(mode: AiMode) {
   return AI_MODES.find((m) => m.mode === mode) ?? AI_MODES[0];
+}
+
+/** "1 plugin" / "3 plugins", count first, so a zero reads as a zero. */
+function countLabel(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
 /** Validate a git branch name (simplified check). */
@@ -466,6 +471,24 @@ export function PreLaunchCard({
   const selectedRepo = repositories?.find((r) => r.path === selectedRepoPath);
   const selectedRepoName = selectedRepo?.name ?? getRepoDisplayName(selectedRepoPath ?? "");
 
+  // What the launch will actually do, read off the same fields the launch
+  // reads (see `launchSlotInner` in TerminalGrid). A worktree that does not
+  // exist yet is described as one, never as a made-up path.
+  const launchBasePath = selectedRepoPath || projectPath;
+  const resolvedWorkingDirectory =
+    slot.workingDirOverride && slot.workingDirOverride !== launchBasePath
+      ? slot.workingDirOverride
+      : !isGitRepo || slot.worktreeMode === "project" || slot.resumeSessionId
+        ? launchBasePath
+        : slot.worktreeMode === "new"
+          ? "a new worktree, created at launch"
+          : "this project's managed worktree, resolved at launch";
+  const integrationsSummary = [
+    countLabel(slot.enabledMcpServers.length, "MCP server"),
+    countLabel(slot.enabledPlugins.length, "plugin"),
+    countLabel(slot.enabledSkills.length, "skill"),
+  ].join(" · ");
+
   return (
     // The `terminal-cell` class (globals.css) sets `overflow: hidden` and
     // is loaded after Tailwind utilities, so an `overflow-y-auto` on this
@@ -473,18 +496,20 @@ export function PreLaunchCard({
     // inner div instead — terminal-cell still clips visually for the
     // rounded border, and the inner div handles overflow.
     //
-    // `my-auto` on the innermost card vertically centers it when there is
-    // surplus room, and collapses to 0 (top-aligned, scrollable) when the
-    // pane is too short to fit the whole card.
+    // That inner div is also the wrapping row that holds the form and the
+    // resolves-to summary, so both stay inside the one scroll container.
     <div className="session-setup terminal-cell flex h-full flex-col bg-maestro-bg">
-      <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto p-6">
+      {/* Form and summary sit side by side when the pane is wide enough and
+          stack when it is not. A split pane can be much narrower than any
+          viewport breakpoint would guess. */}
+      <div className="flex min-h-0 flex-1 flex-wrap content-start items-start overflow-y-auto">
         {/* Card content */}
-        <div className="flex w-full max-w-xl flex-col gap-5 py-4">
+        <div className="flex min-w-[300px] max-w-xl flex-[2] basis-[420px] flex-col gap-5 px-7 py-8">
           {/* Header with remove button */}
           <div className="flex items-center justify-between">
             <div className="min-w-0">
-              <h2 className="text-2xl font-semibold tracking-tight text-maestro-text">
-                Start a session
+              <h2 className="text-[30px] font-semibold leading-tight tracking-tight text-maestro-text">
+                New session
               </h2>
               <p
                 className="mt-2 truncate text-xs text-maestro-muted"
@@ -522,7 +547,7 @@ export function PreLaunchCard({
           <div>
             <label
               htmlFor={`session-name-${slot.id}`}
-              className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-maestro-muted"
+              className="mb-1.5 block font-mono text-[10.5px] font-semibold uppercase tracking-[0.07em] text-maestro-muted"
             >
               Window Name <span className="text-maestro-muted/60">(optional)</span>
             </label>
@@ -541,7 +566,7 @@ export function PreLaunchCard({
           <div className="relative" ref={modeDropdownRef}>
             <label
               htmlFor="prelaunch-ai-mode"
-              className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-maestro-muted"
+              className="mb-1.5 block font-mono text-[10.5px] font-semibold uppercase tracking-[0.07em] text-maestro-muted"
             >
               AI Mode
             </label>
@@ -590,7 +615,7 @@ export function PreLaunchCard({
           <div className="relative" ref={branchDropdownRef}>
             <label
               htmlFor="prelaunch-branch"
-              className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-maestro-muted"
+              className="mb-1.5 block font-mono text-[10.5px] font-semibold uppercase tracking-[0.07em] text-maestro-muted"
             >
               {isMultiRepo ? "Repository & Branch" : "Git Branch"}
             </label>
@@ -1342,7 +1367,7 @@ export function PreLaunchCard({
           {isGitRepo && (
             <div>
               {/* Group heading for the worktree mode buttons below — not a control label. */}
-              <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-maestro-muted">
+              <span className="mb-1.5 block font-mono text-[10.5px] font-semibold uppercase tracking-[0.07em] text-maestro-muted">
                 Working Directory
               </span>
               <div className="flex gap-1">
@@ -1405,7 +1430,7 @@ export function PreLaunchCard({
           >
             <label
               htmlFor="prelaunch-mcp-servers"
-              className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-maestro-muted"
+              className="mb-1.5 block font-mono text-[10.5px] font-semibold uppercase tracking-[0.07em] text-maestro-muted"
             >
               MCP Servers
             </label>
@@ -1540,7 +1565,7 @@ export function PreLaunchCard({
           >
             <label
               htmlFor="prelaunch-plugins-skills"
-              className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-maestro-muted"
+              className="mb-1.5 block font-mono text-[10.5px] font-semibold uppercase tracking-[0.07em] text-maestro-muted"
             >
               Plugins & Skills
             </label>
@@ -1780,7 +1805,7 @@ export function PreLaunchCard({
           {slot.mode === "Claude" && claudeSessions.length > 0 && (
             <div>
               {/* Group heading for the session cards below — not a control label. */}
-              <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-maestro-muted">
+              <span className="mb-1.5 block font-mono text-[10.5px] font-semibold uppercase tracking-[0.07em] text-maestro-muted">
                 Resume Previous Session
               </span>
               <div className="flex gap-2 overflow-x-auto pb-1">
@@ -1863,6 +1888,48 @@ export function PreLaunchCard({
             {slot.resumeSessionId ? "Resume Session" : "Launch Session"}
           </button>
         </div>
+        <section
+          aria-label="Resolves to"
+          className="flex min-w-[260px] flex-1 basis-[340px] flex-col gap-5 self-stretch border-l border-maestro-border bg-maestro-surface px-7 py-8"
+        >
+          <span className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.07em] text-maestro-muted">
+            Resolves to
+          </span>
+          <div className="flex flex-col gap-4">
+            <ResolveRow label="runs on">this machine</ResolveRow>
+            <ResolveRow label="agent">
+              {modeConfig.label}
+              {slot.resumeSessionId ? " · resuming a previous conversation" : ""}
+            </ResolveRow>
+            <ResolveRow label="branch">
+              {isGitRepo || isMultiRepo ? displayBranch : "not a git repository"}
+            </ResolveRow>
+            <ResolveRow label="working directory">{resolvedWorkingDirectory}</ResolveRow>
+            <ResolveRow label="integrations">{integrationsSummary}</ResolveRow>
+            <ResolveRow label="images stage to">
+              this machine, until the session is given an SSH destination
+            </ResolveRow>
+            <ResolveRow label="cleanup">
+              staged images are kept for 24 hours, and removed when the session closes
+            </ResolveRow>
+          </div>
+          <p className="m-0 text-[11.5px] leading-relaxed text-maestro-muted">
+            Maestro launches sessions on this machine. There is no remote launcher, and setting an
+            image destination only changes where a pasted file is written.
+          </p>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+/** One `label` / `value` pair of the resolves-to summary. */
+function ResolveRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div>
+      <div className="font-mono text-[11px] leading-relaxed text-maestro-muted">{label}</div>
+      <div className="mt-0.5 break-words font-mono text-xs leading-relaxed text-maestro-text">
+        {children}
       </div>
     </div>
   );

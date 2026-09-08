@@ -234,6 +234,9 @@ pub async fn kill_session(
 /// The backend revalidates the session and image destination before inserting
 /// the path, so a delayed upload cannot paste into a changed destination.
 ///
+/// Returns the staged path it pasted. The delivery sheet shows the user where
+/// the image actually landed, and the only place that is known is here.
+///
 /// The bytes arrive as the raw IPC request body (`application/octet-stream`)
 /// rather than a JSON field: as JSON, Tauri renders every image byte as a
 /// decimal-digit string (~4x expansion) on the webview's main thread, which
@@ -242,7 +245,7 @@ pub async fn kill_session(
 pub async fn save_pasted_image(
     request: tauri::ipc::Request<'_>,
     manager: State<'_, ProcessManager>,
-) -> Result<(), String> {
+) -> Result<String, String> {
     const MAX_IMAGE_SIZE: usize = crate::core::session_attachments::MAX_IMAGE_BYTES;
     let session_id: u32 = request
         .headers()
@@ -297,7 +300,8 @@ pub async fn save_pasted_image(
                 return Err("Session changed during upload".into());
             }
             pm.write_stdin(session_id, &format!("\x1b[200~{path}\x1b[201~ "))
-                .map_err(|e| e.to_string())
+                .map_err(|e| e.to_string())?;
+            Ok(path.to_string())
         })
     })
     .await
