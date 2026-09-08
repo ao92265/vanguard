@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { HandoffInfo } from "@/lib/bands";
 import { useActStore } from "@/stores/useActStore";
 import { useBandStore } from "@/stores/useBandStore";
 import { type SessionConfig, useSessionStore } from "@/stores/useSessionStore";
@@ -45,6 +46,25 @@ const rollout: SessionConfig = {
   status: "NeedsInput",
   needsInputPrompt: "Second task waiting on a decision",
 } as SessionConfig;
+
+/** A parked handoff that asked two questions and recorded what it last did. */
+function handoff(overrides: Partial<HandoffInfo> = {}): HandoffInfo {
+  return {
+    slug: "nanoclaw-telegram",
+    path: "/tmp/wt/telegram",
+    repo: "nanoclaw",
+    branch: "feat/vanguard-telegram",
+    uncommitted: 3,
+    lastCommit: { hash: "abc1234", msg: "Route photos through the bridge" },
+    asks: ["Restrict the bridge to your own chat id?", "Should it accept any chat it is added to?"],
+    lastAction: "edit router.ts +38 -4",
+    waiting: true,
+    lastActive: new Date().toISOString(),
+    stale: false,
+    orphan: false,
+    ...overrides,
+  };
+}
 
 beforeEach(() => {
   useBandStore.setState({
@@ -141,6 +161,51 @@ it("leaves j and k to the tour while the tour is open", () => {
   render(<HomeView onClose={() => {}} onNavigate={() => {}} />);
   fireEvent.keyDown(focusCard(), { key: "j" });
   expect(focusCard()).toHaveTextContent("Review migration before applying changes");
+});
+
+it("asks the handoff's questions in the card and keeps its last action as a fact", () => {
+  useSessionStore.setState({ sessions: [] });
+  useBandStore.setState({ handoffs: [handoff()] });
+  render(<HomeView onClose={() => {}} onNavigate={() => {}} />);
+  const card = within(focusCard());
+
+  expect(card.getByText("Restrict the bridge to your own chat id?")).toBeVisible();
+  expect(card.getByText("Should it accept any chat it is added to?")).toBeVisible();
+  expect(card.getByText("Last action")).toBeVisible();
+  expect(card.getByText("edit router.ts +38 -4")).toBeVisible();
+  expect(card.getByText("3 files")).toBeVisible();
+});
+
+it("names the handoff's repo and says when it asked you something", () => {
+  useSessionStore.setState({ sessions: [] });
+  useBandStore.setState({
+    handoffs: [
+      handoff(),
+      handoff({ slug: "wraith", path: "/tmp/wt/wraith", repo: "wraith", waiting: false }),
+    ],
+  });
+  render(<HomeView onClose={() => {}} onNavigate={() => {}} />);
+
+  const card = within(focusCard());
+  expect(card.getByText("nanoclaw")).toBeVisible();
+  expect(card.getByText("ASKED YOU")).toBeVisible();
+  expect(card.queryByText("Handoff")).toBeNull();
+
+  const parked = within(screen.getByRole("list", { name: "Then" }));
+  expect(parked.getByText("wraith")).toBeVisible();
+  expect(parked.getByText("HANDOFF")).toBeVisible();
+});
+
+it("names the oldest blocked row in the header", () => {
+  useSessionStore.setState({
+    sessions: [
+      { ...migration, lastMcpUpdateTime: Date.now() - 45 * 60_000 },
+      { ...rollout, lastMcpUpdateTime: Date.now() - 5 * 60_000 },
+    ],
+  });
+  render(<HomeView onClose={() => {}} onNavigate={() => {}} />);
+  expect(screen.getByText(/oldest 45m/)).toBeVisible();
+  expect(screen.queryByText(/avg/i)).toBeNull();
 });
 
 it("keeps the landed and running bands reachable below the blocked queue", () => {

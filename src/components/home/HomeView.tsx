@@ -67,10 +67,16 @@ function relAgo(iso: string): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
+function parseMs(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const at = Date.parse(iso);
+  return Number.isFinite(at) ? at : null;
+}
+
 /** The queue's time column: one glance, no units to read. Empty when unknown. */
-function shortAgo(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const ms = Date.now() - Date.parse(iso);
+function shortAgo(at: number | null): string {
+  if (at === null) return "";
+  const ms = Date.now() - at;
   if (!Number.isFinite(ms) || ms < 0) return "";
   const mins = Math.floor(ms / 60000);
   if (mins < 1) return "now";
@@ -103,7 +109,11 @@ function itemSummary(item: BandItem): { title: string; context: string; detail: 
           SESSION_STATUS_BADGES[item.session.status].label,
       };
     case "handoff":
-      return { title: item.handoff.repo, context: "Handoff", detail: item.handoff.lastAction };
+      return {
+        title: item.handoff.repo,
+        context: item.handoff.repo,
+        detail: item.handoff.lastAction,
+      };
     case "pr":
       return {
         title: `#${item.pr.number} ${item.pr.title}`,
@@ -124,8 +134,13 @@ function queueBadge(item: BandItem): { label: string; cls: string } {
   switch (item.kind) {
     case "session":
       return SESSION_STATUS_BADGES[item.session.status];
+    /* Both kinds of handoff share the band (bands.ts admits one on asks OR
+       waiting), so the badge is the only thing that separates a snapshot that
+       asked you a question from one that just has notes on disk. */
     case "handoff":
-      return { label: "HANDOFF", cls: "bg-maestro-yellow/15 text-maestro-yellow" };
+      return item.handoff.waiting
+        ? { label: "ASKED YOU", cls: "bg-maestro-accent/15 text-maestro-accent" }
+        : { label: "HANDOFF", cls: "bg-maestro-yellow/15 text-maestro-yellow" };
     case "pr":
       return item.pr.mergedAt
         ? { label: "MERGED", cls: "bg-maestro-purple/15 text-maestro-purple" }
@@ -149,33 +164,45 @@ function itemSubtitle(item: BandItem): string {
   }
 }
 
-/** The one line the row is asking you about. */
-function itemAsk(item: BandItem): string {
+/**
+ * Everything the row is asking you, newest last.
+ *
+ * A handoff can carry several questions and the card shows all of them: one
+ * of them is why the row is in this band at all, and picking one would hide a
+ * question nobody else is going to ask again. Its last action is a fact, not
+ * the question, so it lives in the strip below rather than in the headline.
+ */
+function itemAskLines(item: BandItem): string[] {
   switch (item.kind) {
     case "session":
-      return itemSummary(item).detail;
-    case "handoff":
-      return item.handoff.lastAction || item.handoff.asks[item.handoff.asks.length - 1] || "";
+      return [itemSummary(item).detail].filter(Boolean);
+    case "handoff": {
+      const asks = item.handoff.asks.filter(Boolean);
+      return asks.length > 0 ? asks : [item.handoff.lastAction].filter(Boolean);
+    }
     case "pr":
-      return `#${item.pr.number} ${item.pr.title}`;
+      return [`#${item.pr.number} ${item.pr.title}`];
     case "run":
-      return item.run.title;
+      return [item.run.title];
+  }
+}
+
+/** When the row last moved, in epoch ms. Null when nothing records it. */
+function itemTimestamp(item: BandItem): number | null {
+  switch (item.kind) {
+    case "session":
+      return item.session.lastMcpUpdateTime ?? null;
+    case "handoff":
+      return parseMs(item.handoff.lastActive);
+    case "pr":
+      return parseMs(item.pr.mergedAt);
+    case "run":
+      return parseMs(item.run.updatedAt);
   }
 }
 
 function itemTime(item: BandItem): string {
-  switch (item.kind) {
-    case "session":
-      return item.session.lastMcpUpdateTime
-        ? shortAgo(new Date(item.session.lastMcpUpdateTime).toISOString())
-        : "";
-    case "handoff":
-      return shortAgo(item.handoff.lastActive);
-    case "pr":
-      return shortAgo(item.pr.mergedAt);
-    case "run":
-      return shortAgo(item.run.updatedAt);
-  }
+  return shortAgo(itemTimestamp(item));
 }
 
 /**
@@ -197,13 +224,17 @@ function focusFacts(item: BandItem): { label: string; value: string }[] {
     }
     case "handoff":
       facts.push({ label: "Worktree", value: item.handoff.path });
+      if (item.handoff.lastAction) {
+        facts.push({ label: "Last action", value: item.handoff.lastAction });
+      }
       if (item.handoff.uncommitted > 0) {
         facts.push({ label: "Uncommitted", value: `${item.handoff.uncommitted} files` });
-      }
-      if (item.handoff.lastCommit) {
+      } else if (item.handoff.lastCommit) {
         facts.push({ label: "Last commit", value: item.handoff.lastCommit.msg });
       }
-      facts.push({ label: "Last active", value: relAgo(item.handoff.lastActive) });
+      if (facts.length < 3) {
+        facts.push({ label: "Last active", value: relAgo(item.handoff.lastActive) });
+      }
       return facts.slice(0, 3);
     case "pr":
       facts.push({ label: "Repository", value: item.repoPath });
@@ -374,6 +405,7 @@ function FocusCard({
   const subtitle = itemSubtitle(item);
   const time = itemTime(item);
   const facts = focusFacts(item);
+  const askLines = itemAskLines(item);
 
   return (
     <>
@@ -393,9 +425,16 @@ function FocusCard({
       </div>
 
       <div className="px-5 pb-5 pt-[22px]">
-        <p className="mb-5 max-w-[820px] text-[22px] font-semibold leading-[1.4] text-maestro-text [overflow-wrap:anywhere] [text-wrap:pretty]">
-          {itemAsk(item) || summary.title}
-        </p>
+        <div className="mb-5 flex max-w-[820px] flex-col gap-3">
+          {(askLines.length > 0 ? askLines : [summary.title]).map((line) => (
+            <p
+              key={line}
+              className="text-[22px] font-semibold leading-[1.4] text-maestro-text [overflow-wrap:anywhere] [text-wrap:pretty]"
+            >
+              {line}
+            </p>
+          ))}
+        </div>
         <div className="flex flex-wrap items-center gap-[9px]">
           {item.kind === "session" && (
             <SessionActions
@@ -479,16 +518,22 @@ function QueueRow({
   const summary = itemSummary(entry.item);
   const badge = queueBadge(entry.item);
   const time = itemTime(entry.item);
-  const ask = itemAsk(entry.item);
+  const lines = itemAskLines(entry.item);
+  const ask = lines[lines.length - 1] ?? "";
   return (
     <li>
       <button
         type="button"
         onClick={() => onInspect(entry)}
-        aria-label={`Inspect ${summary.context}: ${summary.title}`}
-        /* The ask is one clipped line here; the whole of it is on the card
-           above the moment the row is chosen, and in the tooltip meanwhile. */
-        title={ask}
+        aria-label={
+          summary.context === summary.title
+            ? `Inspect ${summary.title}`
+            : `Inspect ${summary.context}: ${summary.title}`
+        }
+        /* The row has room for the most recent ask only; every one of them is
+           on the card the moment the row is chosen, and in the tooltip
+           meanwhile. */
+        title={lines.join("\n")}
         className="flex w-full flex-wrap items-center gap-3 rounded-lg bg-maestro-card px-3.5 py-[11px] text-left transition-colors hover:bg-maestro-surface"
       >
         <span className="w-[14px] shrink-0 font-mono text-[11px] font-semibold text-maestro-muted">
@@ -781,6 +826,16 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
   const rest = (band: QueueBand) =>
     queue.filter((entry) => entry.band === band && entry.key !== focusedKey);
 
+  /* The reference's "oldest 41m". It is the least recently updated blocked
+     row, not the longest wait: nothing records when a row started waiting,
+     and rows without a timestamp of their own are simply not candidates. */
+  const oldestBlocked = shortAgo(
+    blocked.visible
+      .map(itemTimestamp)
+      .filter((at): at is number => at !== null)
+      .reduce<number | null>((oldest, at) => (oldest === null || at < oldest ? at : oldest), null),
+  );
+
   const prsStale =
     prsError ??
     (repoPrs.some((r) => r.error)
@@ -801,6 +856,14 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
           {blocked.visible.length}
         </span>
         <div className="flex-1" />
+        {oldestBlocked && (
+          <span
+            className="font-mono text-[11.5px] text-maestro-muted"
+            title="How long the blocked row that has gone longest without an update has been sitting there"
+          >
+            oldest {oldestBlocked}
+          </span>
+        )}
         <span className="font-mono text-[11.5px] text-maestro-muted">
           {landed.length} landed · {running.length} running
         </span>

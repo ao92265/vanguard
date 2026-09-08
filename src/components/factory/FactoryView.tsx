@@ -622,7 +622,7 @@ export function FactoryView({ onClose }: FactoryViewProps) {
           survives a trip back to the board. */}
       <section
         ref={specRef}
-        aria-label="New run specification"
+        aria-label="New spec"
         hidden={!specVisible}
         onKeyDown={(event) => {
           if (event.key === "Escape") {

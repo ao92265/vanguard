@@ -88,6 +88,26 @@ it("renders finished runs on the board instead of dropping them", () => {
   ).toBeVisible();
 });
 
+it("shows the Other lane only when a run carries a status it does not know", () => {
+  const known = everyStatus.filter((r) => r.status !== "reticulating");
+  useActStore.setState({ runs: known, fetchedAt: Date.now() });
+  const board = render(<FactoryView onClose={() => {}} />);
+  expect(screen.queryByRole("region", { name: "Other" })).toBeNull();
+
+  board.unmount();
+  useActStore.setState({ runs: everyStatus, fetchedAt: Date.now() });
+  render(<FactoryView onClose={() => {}} />);
+  expect(
+    within(screen.getByRole("region", { name: "Other" })).getByText("Unknown to this frontend"),
+  ).toBeVisible();
+});
+
+it("names the spec editor after the control that opens it", () => {
+  render(<FactoryView onClose={() => {}} />);
+  fireEvent.click(screen.getByRole("button", { name: "New spec" }));
+  expect(screen.getByRole("region", { name: "New spec" })).toBeVisible();
+});
+
 it("marks a gated run as needing you wherever its status lane puts it", () => {
   const gated = run("r8", "running", "Telegram photo routing");
   useActStore.setState({ runs: [gated], gatedRuns: [gated], fetchedAt: Date.now() });
