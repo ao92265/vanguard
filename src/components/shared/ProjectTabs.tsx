@@ -100,7 +100,11 @@ function TabItem({
       tabIndex={tab.active ? 0 : -1}
       onClick={onSelect}
       onKeyDown={onKeyDown}
-      aria-label={tab.name}
+      aria-label={
+        sessionCount > 0
+          ? `${tab.name}, ${sessionCount} ${sessionCount === 1 ? "session" : "sessions"}`
+          : tab.name
+      }
       className={`flex ${vertical ? "workbench-project-row w-full justify-between" : "max-w-64 px-3 py-2"} shrink-0 items-center gap-2 rounded-md text-xs font-medium cursor-pointer ${
         tab.active
           ? "bg-maestro-bg text-maestro-text"
@@ -228,7 +232,7 @@ export function ProjectTabs({
     return (
       <section className="workbench-projects">
         <div className="workbench-project-heading workbench-rail-label">
-          <h2 className="workbench-rail-label font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-maestro-muted">
+          <h2 className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-maestro-muted">
             Projects <span className="ml-1 opacity-60">{tabs.length}</span>
           </h2>
         </div>

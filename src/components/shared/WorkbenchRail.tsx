@@ -12,19 +12,21 @@ export interface RailDestination {
   onClick?: () => void;
 }
 
+/** Ties the More trigger to its popup for assistive tech and for the tab-order
+ *  test; a constant because exactly one rail is ever mounted. */
+const MORE_MENU_ID = "workbench-more-menu";
+
 export function WorkbenchRail({
   primary,
   tools,
   sidebarOpen,
   onToggleSidebar,
-  footer,
   projectNavigation,
 }: {
   primary: RailDestination[];
   tools: RailDestination[];
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
-  footer?: ReactNode;
   projectNavigation?: ReactNode;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -61,79 +63,92 @@ export function WorkbenchRail({
       </button>
     );
   return (
-    <nav
-      aria-label="Workspace"
-      data-expanded={pinned || hovered || focused || moreOpen}
-      className="workbench-rail"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      onFocusCapture={() => setFocused(true)}
-      onBlurCapture={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-          setFocused(false);
-          setMoreOpen(false);
-        }
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Escape" && moreOpen) {
-          event.stopPropagation();
-          setMoreOpen(false);
-          moreRef.current?.focus();
-        }
-      }}
-    >
-      <div className="workbench-brand">
-        <span className="workbench-brand-mark">V</span>
-        <span className="workbench-rail-label">Vanguard</span>
-      </div>
-      <div className="workbench-navigation">{primary.map((item) => destination(item))}</div>
-      <div className="workbench-project-divider" />
-      {projectNavigation}
-      <div className="workbench-rail-bottom">
-        {moreOpen && (
-          <div className="workbench-more">
-            {tools.map((item) => destination(item, true))}
-            {destination(
-              {
-                label: "Toggle sidebar",
-                icon: PanelLeft,
-                pressed: sidebarOpen,
-                onClick: onToggleSidebar,
-              },
-              true,
+    <>
+      {/* The width the content column actually gives up. The rail itself is
+          positioned over this, so a hover or focus expansion overlays the
+          content instead of resizing every live terminal; only pinning moves
+          the slot. See the `.workbench-rail-slot` comment in globals.css. */}
+      <div className="workbench-rail-slot" data-pinned={pinned} aria-hidden="true" />
+      <nav
+        aria-label="Workspace"
+        data-expanded={pinned || hovered || focused || moreOpen}
+        data-pinned={pinned}
+        data-more-open={moreOpen}
+        className="workbench-rail"
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        onFocusCapture={() => setFocused(true)}
+        onBlurCapture={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            setFocused(false);
+            setMoreOpen(false);
+          }
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Escape" && moreOpen) {
+            event.stopPropagation();
+            setMoreOpen(false);
+            moreRef.current?.focus();
+          }
+        }}
+      >
+        <div className="workbench-brand">
+          <span className="workbench-brand-mark">V</span>
+          <span className="workbench-rail-label">Vanguard</span>
+        </div>
+        <div className="workbench-navigation">{primary.map((item) => destination(item))}</div>
+        <div className="workbench-project-divider" />
+        {projectNavigation}
+        <div className="workbench-rail-bottom">
+          <button
+            type="button"
+            aria-label="Pin navigation"
+            aria-pressed={pinned}
+            onClick={() => setPinned((value) => !value)}
+            className="workbench-rail-row"
+          >
+            <span className="workbench-rail-icon">
+              <Pin size={16} />
+            </span>
+            <span className="workbench-rail-label">Pin navigation</span>
+          </button>
+          <button
+            ref={moreRef}
+            type="button"
+            aria-label="More"
+            aria-expanded={moreOpen}
+            aria-controls={MORE_MENU_ID}
+            onClick={() => setMoreOpen((value) => !value)}
+            className="workbench-rail-row"
+          >
+            <span className="workbench-rail-icon">
+              <MoreHorizontal size={16} />
+            </span>
+            <span className="workbench-rail-label">More</span>
+            {tools.some((tool) => tool.attention) && (
+              <span role="img" aria-label="Tools need attention" className="workbench-attention" />
             )}
-            {footer}
-          </div>
-        )}
-        <button
-          type="button"
-          aria-label="Pin navigation"
-          aria-pressed={pinned}
-          onClick={() => setPinned((value) => !value)}
-          className="workbench-rail-row"
-        >
-          <span className="workbench-rail-icon">
-            <Pin size={16} />
-          </span>
-          <span className="workbench-rail-label">Pin navigation</span>
-        </button>
-        <button
-          ref={moreRef}
-          type="button"
-          aria-label="More"
-          aria-expanded={moreOpen}
-          onClick={() => setMoreOpen((value) => !value)}
-          className="workbench-rail-row"
-        >
-          <span className="workbench-rail-icon">
-            <MoreHorizontal size={16} />
-          </span>
-          <span className="workbench-rail-label">More</span>
-          {tools.some((tool) => tool.attention) && (
-            <span role="img" aria-label="Tools need attention" className="workbench-attention" />
+          </button>
+          {/* After the trigger, not before it: rendered first, a forward Tab
+              from More skipped the menu entirely and left the nav, and the
+              blur-capture above then closed it. CSS puts it back beside the
+              rail. */}
+          {moreOpen && (
+            <div id={MORE_MENU_ID} className="workbench-more">
+              {tools.map((item) => destination(item, true))}
+              {destination(
+                {
+                  label: "Toggle sidebar",
+                  icon: PanelLeft,
+                  pressed: sidebarOpen,
+                  onClick: onToggleSidebar,
+                },
+                true,
+              )}
+            </div>
           )}
-        </button>
-      </div>
-    </nav>
+        </div>
+      </nav>
+    </>
   );
 }

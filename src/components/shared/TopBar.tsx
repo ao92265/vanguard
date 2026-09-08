@@ -43,7 +43,6 @@ export interface EagleProjectOption {
 
 interface TopBarProps {
   projectNavigation?: ReactNode;
-  railFooter?: ReactNode;
   ledgerViewOpen?: boolean;
   onOpenLedger?: () => void;
   canAddSession?: boolean;
@@ -119,7 +118,6 @@ interface TopBarProps {
 
 export function TopBar({
   projectNavigation,
-  railFooter,
   ledgerViewOpen = false,
   onOpenLedger,
   canAddSession = true,
@@ -300,7 +298,6 @@ export function TopBar({
           },
           { label: "Extensions", icon: Package, onClick: onOpenExtensions },
         ]}
-        footer={railFooter}
       />
     );
   }

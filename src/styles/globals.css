@@ -48,6 +48,9 @@
     --maestro-border: 38 38 44;
     --maestro-text: 232 232 236;
     --maestro-muted: 148 148 160;
+    /* The design system's `--onAccent`: the ink for anything sitting ON the
+       accent fill. Defined for both themes so it is there when the accent
+       buttons are moved onto it; nothing reads it yet. */
     --maestro-on-accent: 13 13 16;
     --maestro-accent-ink: 130 143 255;
 
@@ -55,7 +58,7 @@
     --maestro-accent: 130 143 255; /* #828fff — the Vanguard V, sampled from the app icon; brand, and signals "needs your input" */
     --maestro-blue: 59 130 246; /* #3b82f6 — working / focused */
     --maestro-green: 63 185 80; /* #3fb950 */
-    --maestro-red: 240 97 109;
+    --maestro-red: 240 97 109; /* #f0616d — supplied by the design system. Still red on purpose now the brand is purple: this one means something is broken, and it is the only red left carrying that meaning */
     --maestro-orange: 245 158 11; /* #f59e0b — matches design spec */
     --maestro-yellow: 234 179 8; /* #eab308 — needs input */
     --maestro-purple: 188 140 255; /* #bc8cff */
@@ -138,9 +141,29 @@
 }
 
 @layer components {
-  .workbench-rail {
+  /* The rail overlays the content while it is only transiently expanded, and
+     pushes it only when pinned. Pushing is the reference behaviour, but the
+     prototype had no terminals: here every content-width change makes each
+     live TerminalView refit xterm and send a PTY resize over IPC, and terminal
+     reflow can rewrap scrollback. Two settled resizes per hover, across up to
+     MAX_SESSIONS terminals, is not a price a pointer crossing the rail should
+     pay. The slot below is the only width the content column ever gives up, so
+     the deliberate pin toggle is the one thing that reflows. */
+  .workbench-rail-slot {
     width: 58px;
     flex: none;
+    transition: width 160ms ease;
+  }
+  .workbench-rail-slot[data-pinned="true"] {
+    width: 232px;
+  }
+  .workbench-rail {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 70;
+    width: 58px;
     display: flex;
     flex-direction: column;
     overflow-x: hidden;
@@ -151,6 +174,13 @@
   }
   .workbench-rail[data-expanded="true"] {
     width: 232px;
+  }
+  /* Clipping is what hides the labels overflowing a 58px rail mid-transition,
+     so it can only be lifted while the rail is already at full width, which
+     `data-more-open` guarantees (More forces the expanded state). Without this
+     the popup below, at `left: 100%`, would be clipped out of existence. */
+  .workbench-rail[data-more-open="true"] {
+    overflow: visible;
   }
   .workbench-brand {
     display: flex;
@@ -251,9 +281,6 @@
     justify-content: space-between;
     padding: 4px 8px 8px;
   }
-  .workbench-project-heading button {
-    padding: 0;
-  }
   .workbench-project-row {
     min-height: 29px;
     padding: 7px 8px;
@@ -281,6 +308,7 @@
     opacity: 1;
   }
   .workbench-rail-bottom {
+    position: relative;
     margin-top: auto;
     flex: none;
     padding: 8px;
@@ -291,13 +319,24 @@
     z-index: 60;
     box-shadow: 12px 0 24px rgb(0 0 0 / 0.2);
   }
-  .workbench-rail[data-expanded="true"] + .workbench-tools-surface {
+  /* Follows the flow width, not the visual one: a transient hover expansion
+     floats over this surface rather than moving it. */
+  .workbench-rail[data-pinned="true"] + .workbench-tools-surface {
     left: 232px;
   }
+  /* Rendered after the More button so forward tabbing reaches it, and put
+     back beside the rail with CSS rather than with DOM order. */
   .workbench-more {
-    margin-bottom: 8px;
-    border-bottom: 1px solid rgb(var(--maestro-border));
-    padding-bottom: 8px;
+    position: absolute;
+    left: 100%;
+    bottom: 8px;
+    z-index: 60;
+    min-width: 184px;
+    padding: 6px;
+    border: 1px solid rgb(var(--maestro-border));
+    border-radius: 9px;
+    background: rgb(var(--maestro-card));
+    box-shadow: 0 12px 28px rgb(0 0 0 / 0.35);
   }
   .workbench-dock {
     width: 68px;
@@ -329,7 +368,18 @@
     background: rgb(var(--maestro-accent) / 0.16);
     color: rgb(var(--maestro-accent-ink));
   }
+  /* `container-type: inline-size` computes to `contain: layout style
+     inline-size`, and layout containment establishes a stacking context. Every
+     z-index inside the footer is therefore clamped to the footer's own, and
+     App renders the footer inside `relative isolate z-0` alongside a board
+     that paints at z-45. Without an explicit z-index above that board,
+     TerminalNavigator's drop-up rises out of the 48px footer and is painted
+     underneath the board, which is open by default. The old centring code
+     carried the same warning about a transform: any stacking context on this
+     element, by whatever route, has to clear the terminal layers. */
   .workbench-footer {
+    position: relative;
+    z-index: 50;
     min-height: 48px;
     flex: none;
     display: flex;
@@ -370,8 +420,11 @@
     margin-left: auto;
     min-width: 0;
   }
+  /* Only rendered above the width threshold BottomBar measures, so there is
+     nothing here to hide: hidden-but-mounted left both readouts polling with
+     nothing on screen. */
   .workbench-footer-extra {
-    display: none;
+    display: flex;
     align-items: center;
     gap: 18px;
   }
@@ -383,11 +436,6 @@
   @container footer (max-width: 800px) {
     .workbench-quick-open > span {
       display: none;
-    }
-  }
-  @container footer (min-width: 1400px) {
-    .workbench-footer-extra {
-      display: flex;
     }
   }
 

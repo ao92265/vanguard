@@ -61,3 +61,50 @@ it("opens More and restores its trigger focus on Escape", () => {
   expect(more).toHaveFocus();
   expect(more).toHaveAttribute("aria-expanded", "false");
 });
+
+/** The order the browser's sequential focus navigation would visit, which is
+ *  DOM order for everything the rail renders (no positive tabindex). */
+function tabOrder(root: HTMLElement): HTMLElement[] {
+  return [...root.querySelectorAll<HTMLElement>("button, [href], input, [tabindex]")].filter(
+    (element) => !element.hasAttribute("disabled") && element.getAttribute("tabindex") !== "-1",
+  );
+}
+
+it("places the More popup after its trigger so forward tabbing reaches it", () => {
+  renderRail();
+  const nav = screen.getByRole("navigation", { name: "Workspace" });
+  const more = screen.getByRole("button", { name: "More" });
+  fireEvent.click(more);
+
+  const popupId = more.getAttribute("aria-controls");
+  expect(popupId).toBeTruthy();
+  const popup = document.getElementById(popupId as string);
+  expect(popup).not.toBeNull();
+
+  const order = tabOrder(nav);
+  const next = order[order.indexOf(more) + 1];
+  expect(next).toBeDefined();
+  expect((popup as HTMLElement).contains(next)).toBe(true);
+
+  // Tabbing INTO the popup must not trip the nav's blur-capture close.
+  fireEvent.blur(more, { relatedTarget: next });
+  expect(more).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByRole("button", { name: "Extensions" })).toBeInTheDocument();
+});
+
+it("only reserves content width when pinned, so hover never reflows the terminals", () => {
+  renderRail();
+  const nav = screen.getByRole("navigation", { name: "Workspace" });
+  const slot = document.querySelector(".workbench-rail-slot");
+  expect(slot).not.toBeNull();
+  expect(slot).toHaveAttribute("data-pinned", "false");
+
+  fireEvent.mouseEnter(nav);
+  expect(nav).toHaveAttribute("data-expanded", "true");
+  expect(slot).toHaveAttribute("data-pinned", "false");
+  expect(nav).toHaveAttribute("data-pinned", "false");
+
+  fireEvent.click(screen.getByRole("button", { name: "Pin navigation" }));
+  expect(slot).toHaveAttribute("data-pinned", "true");
+  expect(nav).toHaveAttribute("data-pinned", "true");
+});
