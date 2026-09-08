@@ -1,6 +1,7 @@
 import { Factory, GitMerge, GitPullRequest, Play, TerminalSquare } from "lucide-react";
 import { badgeBaseClass, SESSION_STATUS_BADGES } from "@/components/session/agentPresentation";
 import type { BoardCardItem } from "@/lib/board";
+import type { BackendSessionStatus } from "@/stores/useSessionStore";
 
 /**
  * One card on the Board: the project, a one-line objective, the stage the
@@ -13,6 +14,11 @@ import type { BoardCardItem } from "@/lib/board";
  * Accent discipline (spec "Visual direction"): the needs-you flag is the only
  * neon accent and the only glow on the board. Blue means working, green done,
  * yellow waiting, purple merged.
+ *
+ * Design 1b draws the card's state twice: as the stage chip it always had, and
+ * as a coloured left edge, so a lane can be read at a glance from across the
+ * board. The edge is derived from the same live state the chip is, never set
+ * independently, so the two cannot disagree.
  */
 
 /**
@@ -113,6 +119,40 @@ function stageChip(item: BoardCardItem): { label: string; cls: string; mono: boo
   }
 }
 
+/** Left-edge colour per session status: the badge vocabulary, as a border. */
+const SESSION_EDGE: Record<BackendSessionStatus, string> = {
+  Starting: "border-l-maestro-orange",
+  Idle: "border-l-maestro-muted",
+  Working: "border-l-maestro-blue",
+  NeedsInput: "border-l-maestro-accent",
+  Done: "border-l-maestro-green",
+  Error: "border-l-maestro-red",
+  Timeout: "border-l-maestro-red",
+};
+
+/**
+ * The card's status edge (design 1b's `borderLeft`).
+ *
+ * Needs-you wins over everything else, because that is the one thing the
+ * board exists to surface; below it each kind carries its own truth.
+ */
+export function cardEdgeClass(item: BoardCardItem): string {
+  if (item.needsYou) return "border-l-maestro-accent";
+  switch (item.kind) {
+    case "session":
+      return SESSION_EDGE[item.session.status];
+    case "handoff":
+      return "border-l-maestro-yellow";
+    case "run":
+      return "border-l-maestro-blue";
+    case "pr":
+      return item.pr.mergedAt ? "border-l-maestro-purple" : "border-l-maestro-blue";
+    case "external":
+      /* Blue means working, matching live sessions: this work IS live. */
+      return "border-l-maestro-blue";
+  }
+}
+
 function cardIcon(item: BoardCardItem) {
   switch (item.kind) {
     case "session":
@@ -141,26 +181,29 @@ export function BoardCard({
   const Icon = cardIcon(item);
 
   const shell = [
-    "work-item w-full px-3 py-4 text-left",
-    item.needsYou ? "bg-maestro-accent/5" : "bg-transparent",
+    "w-full rounded-[9px] border border-maestro-border border-l-2 px-3 py-[11px] text-left",
+    cardEdgeClass(item),
+    item.needsYou ? "bg-maestro-accent/5" : "bg-maestro-surface",
     selected ? "ring-1 ring-maestro-text/50" : "",
   ].join(" ");
 
   const body = (
     <>
-      <span className="work-item-project flex min-w-0 items-center gap-2">
-        <Icon size={11} className="shrink-0 text-maestro-muted" />
-        <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-maestro-text">
+      <span className="mb-[5px] flex min-w-0 items-center gap-1.5">
+        <Icon size={10} className="shrink-0 text-maestro-muted" />
+        <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-maestro-muted">
           {item.projectName}
         </span>
         {item.since && (
-          <span className="shrink-0 text-[10px] text-maestro-muted">{relAgo(item.since)}</span>
+          <span className="shrink-0 font-mono text-[10px] text-maestro-muted">
+            {relAgo(item.since)}
+          </span>
         )}
       </span>
-      <span className="work-item-objective block min-w-0 truncate text-[13px] text-maestro-text">
+      <span className="block min-w-0 text-[12.5px] font-medium leading-[1.35] text-maestro-text">
         {item.objective}
       </span>
-      <span className="work-item-state flex flex-wrap items-center gap-1">
+      <span className="mt-[7px] flex flex-wrap items-center gap-1">
         <span className={`${badgeBaseClass} ${chip.cls} ${chip.mono ? "font-mono" : ""}`}>
           {chip.label}
         </span>
@@ -188,7 +231,7 @@ export function BoardCard({
   return (
     <button
       type="button"
-      className={`${shell} hover:border-maestro-muted/50`}
+      className={`${shell} transition-colors hover:border-maestro-muted/50`}
       onClick={onActivate}
       title={action.title}
       data-selected={selected || undefined}

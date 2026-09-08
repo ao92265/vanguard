@@ -97,6 +97,33 @@ function pr(): PullRequestInfo {
   } as PullRequestInfo;
 }
 
+/** Local-midnight-safe offset: the rails are days as the user's clock reads them. */
+function daysAgo(days: number): string {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function mergedPr(number: number, title: string, mergedAt: string | null): PullRequestInfo {
+  return {
+    number,
+    title,
+    url: `https://example.test/pr/${number}`,
+    headRefName: "feat/importer",
+    additions: 12,
+    deletions: 3,
+    mergedAt,
+  } as PullRequestInfo;
+}
+
+function mergedRepo(merged: PullRequestInfo[] = [mergedPr(1, "Widen the importer", daysAgo(0))]) {
+  return {
+    repoPath: "/tmp/proj-a",
+    projectName: "proj-a",
+    changesRequested: [],
+    merged,
+    error: null,
+  } satisfies RepoPrs;
+}
+
 function changesRequestedRepo(): RepoPrs {
   return {
     repoPath: "/tmp/proj-a",
@@ -534,5 +561,91 @@ describe("BoardView", () => {
     renderBoard();
 
     expect(screen.getByText("FACTORY STALE")).toBeInTheDocument();
+  });
+  it("shows the board's stages as lanes, and the ledger only in ledger mode", () => {
+    useSessionStore.setState({ sessions: [session(1, "Working")] });
+    useWorkspaceStore.setState({ tabs: [tab()] });
+
+    renderBoard();
+
+    expect(screen.getByRole("region", { name: "Building" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Work ledger" })).not.toBeInTheDocument();
+  });
+
+  it("shows the work ledger instead of the lanes in ledger mode", () => {
+    useSessionStore.setState({ sessions: [session(1, "Working")] });
+    useWorkspaceStore.setState({ tabs: [tab()] });
+    useBandStore.setState({ repoPrs: [mergedRepo()] });
+
+    renderBoard({ mode: "ledger" });
+
+    const ledger = within(screen.getByRole("region", { name: "Work ledger" }));
+    expect(ledger.getByText(/Widen the importer/)).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Building" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Filter Building" })).not.toBeInTheDocument();
+  });
+
+  it("groups ledger records onto day rails and expands the newest day", () => {
+    useBandStore.setState({
+      repoPrs: [
+        mergedRepo([
+          mergedPr(1, "Widen the importer", daysAgo(0)),
+          mergedPr(2, "Narrow the exporter", daysAgo(1)),
+        ]),
+      ],
+    });
+
+    renderBoard({ mode: "ledger" });
+
+    const rails = screen.getAllByRole("button", { name: /^Expand / });
+    expect(rails.map((rail) => rail.textContent)).toEqual([
+      expect.stringContaining("Today"),
+      expect.stringContaining("Yesterday"),
+    ]);
+
+    const expanded = within(screen.getByRole("region", { name: /expanded$/ }));
+    expect(expanded.getByText(/Widen the importer/)).toBeInTheDocument();
+    expect(expanded.queryByText(/Narrow the exporter/)).not.toBeInTheDocument();
+
+    fireEvent.click(rails[1]);
+    const yesterday = within(screen.getByRole("region", { name: /expanded$/ }));
+    expect(yesterday.getByText(/Narrow the exporter/)).toBeInTheDocument();
+  });
+
+  it("keeps a record whose timestamp cannot be read, on its own rail", () => {
+    useActStore.setState({ runs: [{ ...run("build"), createdAt: null, updatedAt: null }] });
+
+    renderBoard({ mode: "ledger" });
+
+    const rail = screen.getByRole("button", { name: /^Expand No date/ });
+    expect(rail).toBeInTheDocument();
+    fireEvent.click(rail);
+    expect(
+      within(screen.getByRole("region", { name: /expanded$/ })).getByText("Ship the importer"),
+    ).toBeInTheDocument();
+  });
+
+  it("says the ledger is empty rather than drawing rails with nothing on them", () => {
+    renderBoard({ mode: "ledger" });
+
+    expect(screen.getByText("Nothing recorded yet")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Expand / })).not.toBeInTheDocument();
+  });
+
+  it("counts only what the ledger sources carry, and claims no spend or host", () => {
+    useBandStore.setState({
+      repoPrs: [mergedRepo([mergedPr(1, "Widen the importer", daysAgo(0))])],
+      handoffs: [handoff()],
+    });
+    useActStore.setState({ runs: [run("build")] });
+
+    renderBoard({ mode: "ledger" });
+
+    const ledger = within(screen.getByRole("region", { name: "Work ledger" }));
+    expect(ledger.getByRole("figure", { name: "1 merged" })).toBeInTheDocument();
+    expect(ledger.getByRole("figure", { name: "1 runs" })).toBeInTheDocument();
+    expect(ledger.getByRole("figure", { name: "1 sessions" })).toBeInTheDocument();
+    expect(ledger.queryByText(/\$/)).not.toBeInTheDocument();
+    expect(ledger.queryByText(/remote/i)).not.toBeInTheDocument();
   });
 });

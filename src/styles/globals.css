@@ -954,10 +954,6 @@
   margin-right: 0;
 }
 
-.work-ledger {
-  container-type: inline-size;
-}
-
 .inbox-screen {
   container-type: inline-size;
 }
@@ -1007,25 +1003,6 @@
 
   .inbox-detail[data-selected="true"] {
     order: -1;
-  }
-}
-
-.work-item {
-  display: grid;
-  grid-template-columns: minmax(140px, 0.65fr) minmax(0, 1.7fr) auto;
-  align-items: center;
-  gap: 20px;
-}
-
-@container (max-width: 640px) {
-  .work-item {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 10px;
-  }
-
-  .work-item-objective {
-    grid-column: 1 / -1;
-    grid-row: 2;
   }
 }
 

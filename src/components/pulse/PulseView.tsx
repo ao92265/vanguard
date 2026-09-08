@@ -1,4 +1,4 @@
-import { Gauge, RefreshCw, X } from "lucide-react";
+import { RefreshCw, X } from "lucide-react";
 import { useEffect } from "react";
 import { ActivityTimeline } from "@/components/pulse/ActivityTimeline";
 import { FlowScoreCard } from "@/components/pulse/FlowScoreCard";
@@ -20,6 +20,13 @@ const POLL_INTERVAL_MS = 60 * 1000;
  * `FactoryView`); the numbers come from `usePulseStore`, which never throws —
  * an unreadable repo or an unauthenticated `gh` shows as a stale badge here,
  * not an empty screen.
+ *
+ * Design 1b's Pulse is a mono uppercase title, four numbers at display size,
+ * one wide timeline, then the detail. What it is NOT is the reference's
+ * agent-hours, average wait and busiest host: nothing in this app measures
+ * how long an agent worked, how long it waited on you, or which machine it
+ * ran on, so those three tiles and both summary cards are absent rather than
+ * filled with something that reads true and is not.
  */
 export function PulseView({ onClose }: PulseViewProps) {
   const { metrics, flow, activity, fetchedAt, error, isRefreshing, refresh } = usePulseStore();
@@ -34,10 +41,13 @@ export function PulseView({ onClose }: PulseViewProps) {
 
   return (
     <div className="absolute inset-0 z-50 flex flex-col bg-maestro-bg">
-      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-maestro-border px-3">
-        <Gauge size={13} className="text-maestro-muted" />
-        <span className="text-[12px] font-semibold text-maestro-text">Pulse</span>
-        {metrics && <span className="text-[11px] text-maestro-muted">{metrics.date}</span>}
+      <div className="flex shrink-0 items-baseline gap-3 px-[34px] pb-[18px] pt-[30px]">
+        <h1 className="font-mono text-[13px] font-semibold uppercase tracking-[0.09em] text-maestro-muted">
+          Pulse
+        </h1>
+        {metrics && (
+          <span className="font-mono text-[12px] text-maestro-muted">{metrics.date}</span>
+        )}
         {stale && (
           <span className={`${badgeBaseClass} bg-maestro-muted/15 text-maestro-muted`}>STALE</span>
         )}
@@ -73,16 +83,16 @@ export function PulseView({ onClose }: PulseViewProps) {
           {isRefreshing ? "Reading today…" : "No reading yet."}
         </div>
       ) : (
-        <div className="flex-1 overflow-y-auto p-3">
-          <div className="mx-auto grid max-w-5xl gap-3 lg:grid-cols-2">
-            <FlowScoreCard flow={flow} />
+        <div className="min-h-0 flex-1 overflow-y-auto px-[34px] pb-[30px]">
+          <div className="mx-auto flex max-w-5xl flex-col gap-[26px]">
             <MetricsPulse metrics={metrics} />
-            <div className="lg:col-span-2">
-              <h2 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-maestro-muted">
+            <FlowScoreCard flow={flow} />
+            <section aria-label="Today">
+              <h2 className="mb-2 font-mono text-[10.5px] font-semibold uppercase tracking-[0.07em] text-maestro-muted">
                 Today
               </h2>
               <ActivityTimeline events={activity} />
-            </div>
+            </section>
           </div>
         </div>
       )}

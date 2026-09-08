@@ -2,18 +2,20 @@ import type { ReactNode } from "react";
 import { badgeBaseClass } from "@/components/session/agentPresentation";
 
 /**
- * One Board column: a muted uppercase header (the Band header pattern), the
- * live count, an optional per-source stale badge, an optional truthful note,
- * then the cards.
+ * One Board lane: a coloured stage dot, a muted uppercase header, the live
+ * count, an optional per-source stale badge, an optional truthful note, then
+ * the cards on a raised well (design 1b's column geometry, the same shape the
+ * Factory's run lanes use).
  *
- * An empty column states why it is empty instead of rendering nothing. A
- * column emptied by a failed poll and a column that is genuinely clear must
- * never look the same: that is the silent under-reporting the pivot bans.
+ * An empty lane states why it is empty instead of rendering nothing. A lane
+ * emptied by a failed poll and a lane that is genuinely clear must never look
+ * the same: that is the silent under-reporting the pivot bans.
  */
 export function BoardColumn({
   title,
   count,
   emptyText,
+  dotClass,
   stale,
   note,
   children,
@@ -21,17 +23,22 @@ export function BoardColumn({
   title: string;
   count: number;
   emptyText: string;
-  /** Message from the source that feeds this column when its last fetch failed. */
+  /** Stage colour, as a Tailwind background class for the header dot. */
+  dotClass: string;
+  /** Message from the source that feeds this lane when its last fetch failed. */
   stale?: string | null;
-  /** Header-right text, e.g. a count of what this column deliberately does not show. */
+  /** Header-right text, e.g. a count of what this lane deliberately does not show. */
   note?: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <section className="flex min-w-0 flex-col" aria-label={title}>
-      <div className="mb-2 flex min-h-7 items-center gap-2">
-        <h2 className="shrink-0 text-[13px] font-semibold text-maestro-text">{title}</h2>
-        <span className="shrink-0 rounded bg-maestro-card px-1.5 py-0.5 font-mono text-[11px] text-maestro-muted">
+    <section className="flex min-h-0 min-w-0 flex-col" aria-label={title}>
+      <div className="flex min-h-[26px] items-center gap-2 px-1 pb-[10px]">
+        <span className={`h-[7px] w-[7px] shrink-0 rounded-full ${dotClass}`} />
+        <span className="shrink-0 truncate font-mono text-[11px] font-semibold uppercase tracking-[0.07em] text-maestro-muted">
+          {title}
+        </span>
+        <span className="shrink-0 font-mono text-[11px] font-semibold text-maestro-muted">
           {count}
         </span>
         {stale && (
@@ -45,13 +52,13 @@ export function BoardColumn({
         <div className="flex-1" />
         {note}
       </div>
-      {count === 0 ? (
-        <p className="py-3 text-xs leading-relaxed text-maestro-muted">{emptyText}</p>
-      ) : (
-        <div className="divide-y divide-maestro-border border-y border-maestro-border">
-          {children}
-        </div>
-      )}
+      <div className="flex min-h-0 flex-1 flex-col gap-[9px] overflow-y-auto rounded-[10px] bg-maestro-card p-[10px]">
+        {count === 0 ? (
+          <p className="px-1 py-2 text-[11.5px] leading-relaxed text-maestro-muted">{emptyText}</p>
+        ) : (
+          children
+        )}
+      </div>
     </section>
   );
 }

@@ -833,7 +833,15 @@ function App() {
   const handleToggleBoardView = useCallback(() => {
     /* Cmd+E under a z-50 overlay would toggle the Board invisibly beneath
        it (review finding 5 on 4f3f27a). The visible meaning of the keystroke
-       is "show me the Board", so leave the overlay and open it. */
+       is "show me the Board", so leave the overlay and open it.
+
+       That meaning also decides the mode. The Board layer has two faces now,
+       and the rail lights whichever one is on screen; a Cmd+E that reopened
+       the layer on the Ledger would leave the rail saying Ledger while the
+       key the user pressed says Board. So the keystroke closes the layer only
+       when the Board face is already what they are looking at, and in every
+       other case it shows the Board face. Closing leaves the mode alone:
+       nothing is rendered to disagree with, and the next open sets it. */
     const overlayUp =
       landscapeView ||
       useWorkflowsViewStore.getState().isOpen ||
@@ -841,18 +849,13 @@ function App() {
       useFactoryViewStore.getState().isOpen ||
       useOrchestratorViewStore.getState().isOpen ||
       usePulseViewStore.getState().isOpen;
-    if (overlayUp) {
-      setLandscapeView(false);
-      useWorkflowsViewStore.getState().close();
-      useHomeViewStore.getState().close();
-      useFactoryViewStore.getState().close();
-      useOrchestratorViewStore.getState().close();
-      usePulseViewStore.getState().close();
-      useBoardViewStore.getState().open();
+    if (!overlayUp && useBoardViewStore.getState().isOpen && boardMode === "board") {
+      useBoardViewStore.getState().close();
       return;
     }
-    useBoardViewStore.getState().toggle();
-  }, [landscapeView]);
+    setBoardMode("board");
+    handleWorkbenchNavigate(true);
+  }, [landscapeView, boardMode, handleWorkbenchNavigate]);
 
   // The full-screen overlays are never open together: opening Home or the
   // Factory closes every other overlay, and opening the older two closes
@@ -1230,6 +1233,7 @@ function App() {
                     }
                     onShowGrid={closeBoardView}
                     onOpenProject={handleBoardOpenProject}
+                    mode={boardMode}
                     overlayOpen={
                       landscapeView ||
                       workflowsViewOpen ||

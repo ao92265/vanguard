@@ -4,6 +4,7 @@ import { useShallow } from "zustand/react/shallow";
 import { BoardCard, boardCardKey, cardAction } from "@/components/board/BoardCard";
 import { BoardColumn } from "@/components/board/BoardColumn";
 import { BoardPeek } from "@/components/board/BoardPeek";
+import { WorkLedger } from "@/components/board/WorkLedger";
 import { badgeBaseClass, SESSION_STATUS_BADGES } from "@/components/session/agentPresentation";
 import type { BandTab, HandoffInfo } from "@/lib/bands";
 import {
@@ -13,6 +14,7 @@ import {
   type BoardColumnKey,
   type BoardReviewRequests,
 } from "@/lib/board";
+import { buildLedgerEntries, groupLedgerEntries, ledgerTotals } from "@/lib/workLedger";
 import { useActStore } from "@/stores/useActStore";
 import { useBandStore } from "@/stores/useBandStore";
 import { useGitHubWatchdogStore } from "@/stores/useGitHubWatchdogStore";
@@ -32,6 +34,11 @@ import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
  * Cards are deliberately not draggable. A card's stage is derived from live
  * state, so a drag would either do nothing or move a card to a stage the work
  * is not in, and both are dead controls in the pivot's terms.
+ *
+ * Two faces, one layer. `mode="board"` is the stage view above; `mode="ledger"`
+ * hands the same sources to [`WorkLedger`], which reads them as history rather
+ * than as stages. They share this component because they share the polling and
+ * the staleness reporting, not because they render anything alike.
  */
 
 interface BoardViewProps {
@@ -57,15 +64,38 @@ interface BoardViewProps {
    * work (review finding 1 on 4f3f27a).
    */
   overlayOpen: boolean;
+  /**
+   * Which face of the work sources this layer shows. The rail's Board and
+   * Ledger entries pick it; defaults to the Board so every existing caller
+   * and test keeps the view it had.
+   */
+  mode?: "board" | "ledger";
 }
 
-const COLUMN_META: Record<BoardColumnKey, { title: string; emptyText: string }> = {
-  suggested: { title: "Suggested", emptyText: "No handoffs are waiting on disk." },
-  planning: { title: "Planning", emptyText: "Nothing is being planned." },
-  building: { title: "Building", emptyText: "Nothing is being built." },
-  checking: { title: "Checking", emptyText: "Nothing is being checked." },
-  review: { title: "Review", emptyText: "Nothing is waiting on review." },
-  done: { title: "Done", emptyText: "Nothing has finished since you looked." },
+/** Per stage: its header, its empty sentence, and its dot colour (design 1b). */
+const COLUMN_META: Record<BoardColumnKey, { title: string; emptyText: string; dot: string }> = {
+  suggested: {
+    title: "Suggested",
+    emptyText: "No handoffs are waiting on disk.",
+    dot: "bg-maestro-muted",
+  },
+  planning: {
+    title: "Planning",
+    emptyText: "Nothing is being planned.",
+    dot: "bg-maestro-purple",
+  },
+  building: { title: "Building", emptyText: "Nothing is being built.", dot: "bg-maestro-blue" },
+  checking: { title: "Checking", emptyText: "Nothing is being checked.", dot: "bg-maestro-yellow" },
+  review: {
+    title: "Review",
+    emptyText: "Nothing is waiting on review.",
+    dot: "bg-maestro-accent",
+  },
+  done: {
+    title: "Done",
+    emptyText: "Nothing has finished since you looked.",
+    dot: "bg-maestro-green",
+  },
 };
 
 /** Fleet strip display order: what needs you first, calmest last (Home's order). */
@@ -90,6 +120,7 @@ export function BoardView({
   onShowGrid,
   onOpenProject,
   overlayOpen,
+  mode = "board",
 }: BoardViewProps) {
   const sessions = useSessionStore(useShallow((s) => s.sessions));
   const tabs = useWorkspaceStore(useShallow((s) => s.tabs));
@@ -171,6 +202,28 @@ export function BoardView({
     ],
   );
 
+  /* The ledger reads the same three polls the board does, as history rather
+     than as stages: merged pull requests, Factory runs, and the handoff files
+     on disk. Nothing new is fetched and nothing new is written. */
+  const ledgerGroups = useMemo(
+    () =>
+      groupLedgerEntries(
+        buildLedgerEntries({
+          mergedPrs: repoPrs.flatMap((repo) =>
+            repo.merged.map((pr) => ({
+              repoPath: repo.repoPath,
+              projectName: repo.projectName,
+              pr,
+            })),
+          ),
+          runs,
+          handoffs,
+        }),
+      ),
+    [repoPrs, runs, handoffs],
+  );
+  const ledgerCounts = useMemo(() => ledgerTotals(ledgerGroups), [ledgerGroups]);
+
   /* Reading order for j/k: column by column, left to right, top to bottom.
      Only cards Enter can act on: parking the selection on a card that
      silently no-ops is a dead control by keyboard, and the why-disabled
@@ -226,8 +279,8 @@ export function BoardView({
   }, []);
 
   useEffect(() => {
-    if (selectedKey && !overlayOpen && !peekItem) focusSelectedCard();
-  }, [selectedKey, overlayOpen, peekItem, focusSelectedCard]);
+    if (selectedKey && !overlayOpen && !peekItem && mode === "board") focusSelectedCard();
+  }, [selectedKey, overlayOpen, peekItem, focusSelectedCard, mode]);
 
   /* Same for the peek: when its directory stops being live outside (the
      poll dropped it, or the session ended), a panel still saying "working
@@ -248,6 +301,9 @@ export function BoardView({
          same early return for the same reason). Same guard while a z-50
          overlay covers the board: these keys would act on hidden cards. */
       if (overlayOpen) return;
+      /* j/k/Enter walk board cards. The ledger has none, so in that mode the
+         keys must go dead rather than move a selection nobody can see. */
+      if (mode !== "board") return;
       if (useTourStore.getState().isOpen) return;
       /* The peek is modal over the board: its own focus trap owns Escape
          and Tab; everything here goes dead so j/k/Enter cannot act on the
@@ -286,7 +342,7 @@ export function BoardView({
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [flat, selectedKey, activate, overlayOpen, peekItem, focusSelectedCard]);
+  }, [flat, selectedKey, activate, overlayOpen, peekItem, focusSelectedCard, mode]);
 
   /* A partially failed PR poll must not read as "nothing in review": naming
      the repos that failed is the difference between stale and wrong. */
@@ -345,13 +401,15 @@ export function BoardView({
        Landscape/Workflows overlays (z-50), which therefore keep stacking on
        top of the Board with no change to the overlay-exclusivity rules. */
     <div className="absolute inset-0 z-[45] flex flex-col bg-maestro-bg">
-      <div className="flex min-h-28 shrink-0 flex-wrap items-center gap-2 px-8 py-6">
-        <div className="min-w-0">
-          <h1 className="text-3xl font-semibold tracking-tight text-maestro-text">Work</h1>
-          <p className="mt-2 text-xs text-maestro-muted">
-            {total} items across your projects. One place to move them forward.
-          </p>
-        </div>
+      <div className="flex shrink-0 flex-wrap items-baseline gap-3 px-[30px] pb-[18px] pt-[26px]">
+        <h1 className="font-mono text-[13px] font-semibold uppercase tracking-[0.09em] text-maestro-muted">
+          {mode === "ledger" ? "Ledger" : "Board"}
+        </h1>
+        <p className="font-mono text-[12px] text-maestro-muted">
+          {mode === "ledger"
+            ? `${ledgerCounts.merged + ledgerCounts.runs + ledgerCounts.sessions} records across ${ledgerCounts.projects} project${ledgerCounts.projects === 1 ? "" : "s"}`
+            : `${total} piece${total === 1 ? "" : "s"} of work`}
+        </p>
         {actError && (
           <span
             className={`${badgeBaseClass} bg-maestro-yellow/15 text-maestro-yellow`}
@@ -391,93 +449,107 @@ export function BoardView({
         <button
           type="button"
           onClick={onShowGrid}
-          className="flex shrink-0 items-center gap-1 rounded border border-maestro-border px-1.5 py-1 text-[11px] text-maestro-muted transition-colors hover:text-maestro-text"
+          className="flex shrink-0 items-center gap-1.5 rounded-[7px] border border-maestro-border px-[13px] py-[5px] text-[12px] font-medium text-maestro-muted transition-colors hover:text-maestro-text"
           aria-label="Grid view"
           title="Show the terminal grid"
         >
-          <LayoutGrid size={12} /> Grid
+          <LayoutGrid size={12} /> Show the terminals instead
         </button>
       </div>
 
-      <nav
-        className="flex shrink-0 gap-1 overflow-x-auto border-b border-maestro-border px-8"
-        aria-label="Work stages"
-      >
-        {(["all", ...BOARD_COLUMN_ORDER] as const).map((key) => (
-          <button
-            key={key}
-            type="button"
-            aria-label={`Filter ${key === "all" ? "All" : COLUMN_META[key].title}`}
-            aria-pressed={stageFilter === key}
-            onClick={() => setStageFilter(key)}
-            className={`shrink-0 border-b-2 px-3 py-3 text-xs transition-colors ${stageFilter === key ? "border-maestro-accent text-maestro-text" : "border-transparent text-maestro-muted hover:text-maestro-text"}`}
-          >
-            {key === "all" ? "All work" : COLUMN_META[key].title}
-            <span className="ml-2 font-mono text-[10px] text-maestro-muted">
-              {key === "all" ? total : columns[key].length}
-            </span>
-          </button>
-        ))}
-      </nav>
+      {mode === "board" && (
+        <nav
+          className="flex shrink-0 gap-1 overflow-x-auto border-b border-maestro-border px-[30px]"
+          aria-label="Work stages"
+        >
+          {(["all", ...BOARD_COLUMN_ORDER] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              aria-label={`Filter ${key === "all" ? "All" : COLUMN_META[key].title}`}
+              aria-pressed={stageFilter === key}
+              onClick={() => setStageFilter(key)}
+              className={`shrink-0 border-b-2 px-3 py-3 text-[12px] transition-colors ${stageFilter === key ? "border-maestro-accent text-maestro-text" : "border-transparent text-maestro-muted hover:text-maestro-text"}`}
+            >
+              {key === "all" ? "All work" : COLUMN_META[key].title}
+              <span className="ml-2 font-mono text-[10px] text-maestro-muted">
+                {key === "all" ? total : columns[key].length}
+              </span>
+            </button>
+          ))}
+        </nav>
+      )}
       {warnings.length > 0 && (
         <output className="border-b border-maestro-yellow/20 bg-maestro-yellow/5 px-8 py-3 text-xs text-maestro-yellow">
           Some sources are out of date: {warnings.join(" · ")}
         </output>
       )}
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div ref={ledgerRef} className="work-ledger flex min-h-full flex-col gap-8 px-8 py-6">
-          {visibleStages.length === 0 && (
-            <div className="flex flex-1 flex-col items-start justify-center py-16">
-              <span className="mb-4 text-[10px] uppercase tracking-[0.18em] text-maestro-muted">
-                {warnings.length ? "Incomplete snapshot" : "Clear workspace"}
-              </span>
-              <h2 className="text-2xl font-medium tracking-tight text-maestro-text">
-                {warnings.length ? "Work sources unavailable" : "No live work yet"}
-              </h2>
-              <p className="mt-3 max-w-md text-sm leading-relaxed text-maestro-muted">
-                Start a terminal in one of your projects. Sessions, handoffs and pull requests will
-                appear here as work progresses.
-              </p>
-              <button
-                type="button"
-                onClick={onShowGrid}
-                className="mt-6 rounded-md border border-maestro-border px-4 py-2 text-xs text-maestro-text hover:bg-maestro-card"
-              >
-                Open terminals
-              </button>
-            </div>
-          )}
+      {mode === "ledger" ? (
+        <WorkLedger
+          groups={ledgerGroups}
+          totals={ledgerCounts}
+          onOpenEntry={(href) => onOpenPr(href)}
+        />
+      ) : visibleStages.length === 0 ? (
+        <div className="flex flex-1 flex-col items-start justify-center px-[30px] py-16">
+          <span className="mb-4 font-mono text-[10px] uppercase tracking-[0.18em] text-maestro-muted">
+            {warnings.length ? "Incomplete snapshot" : "Clear workspace"}
+          </span>
+          <h2 className="text-2xl font-medium tracking-tight text-maestro-text">
+            {warnings.length ? "Work sources unavailable" : "No live work yet"}
+          </h2>
+          <p className="mt-3 max-w-md text-sm leading-relaxed text-maestro-muted">
+            Start a terminal in one of your projects. Sessions, handoffs and pull requests will
+            appear here as work progresses.
+          </p>
+          <button
+            type="button"
+            onClick={onShowGrid}
+            className="mt-6 rounded-md border border-maestro-border px-4 py-2 text-xs text-maestro-text hover:bg-maestro-card"
+          >
+            Open terminals
+          </button>
+        </div>
+      ) : (
+        /* Lanes side by side, the reference's board geometry. They scroll
+           horizontally rather than shrinking below a legible card width, so a
+           narrow window loses none of the six stages. */
+        <div
+          ref={ledgerRef}
+          className="grid min-h-0 min-w-0 flex-1 gap-[14px] overflow-x-auto px-[30px] pb-[26px] pt-[18px]"
+          style={{ gridTemplateColumns: `repeat(${visibleStages.length}, minmax(200px, 1fr))` }}
+        >
           {visibleStages.map((key) => {
             const items = columns[key];
             return (
-              <div key={key} className="flex min-w-0 flex-col">
-                <BoardColumn
-                  title={COLUMN_META[key].title}
-                  count={items.length}
-                  emptyText={COLUMN_META[key].emptyText}
-                  stale={staleFor(key)}
-                  note={noteFor(key)}
-                >
-                  {items.map((item) => {
-                    const cardKey = boardCardKey(item);
-                    return (
-                      <BoardCard
-                        key={cardKey}
-                        item={item}
-                        selected={cardKey === selectedKey}
-                        onActivate={() => {
-                          setSelectedKey(cardKey);
-                          activate(item);
-                        }}
-                      />
-                    );
-                  })}
-                </BoardColumn>
-              </div>
+              <BoardColumn
+                key={key}
+                title={COLUMN_META[key].title}
+                count={items.length}
+                emptyText={COLUMN_META[key].emptyText}
+                dotClass={COLUMN_META[key].dot}
+                stale={staleFor(key)}
+                note={noteFor(key)}
+              >
+                {items.map((item) => {
+                  const cardKey = boardCardKey(item);
+                  return (
+                    <BoardCard
+                      key={cardKey}
+                      item={item}
+                      selected={cardKey === selectedKey}
+                      onActivate={() => {
+                        setSelectedKey(cardKey);
+                        activate(item);
+                      }}
+                    />
+                  );
+                })}
+              </BoardColumn>
             );
           })}
         </div>
-      </div>
+      )}
 
       {/* Fleet strip: plain counts, not chips that look clickable. Idle
           sessions get no card anywhere on the board, so this strip is the
@@ -504,7 +576,7 @@ export function BoardView({
         })}
         <div className="flex-1" />
         <span className="shrink-0 text-[10px] text-maestro-muted/70">
-          j and k move, Enter opens
+          {mode === "ledger" ? "Pick a day to expand it" : "j and k move, Enter opens"}
         </span>
       </div>
 
