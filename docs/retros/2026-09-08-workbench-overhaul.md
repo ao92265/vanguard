@@ -32,10 +32,16 @@ Also retained utility toggle state and health indicators, and routed New termina
 - `biome check .`: exit 0, 400 files.
 - Full `npm test`: exit 0, 1,442 tests in 119 files; no test exclusions in the full gate. Targeted `-t` runs during the red phase intentionally selected one regression, without editing test skips.
 - `git diff --check`: exit 0.
-- Native bundle build and installation: pending final build.
+- `npm run tauri build -- --bundles app`: exit 0 after the final keyboard fix; includes TypeScript and Vite production build. Existing bundle-ID, browsers-data and chunk-size warnings remain non-fatal.
+- Merged-tree `npm test`: exit 0, 1,442 tests in 119 files.
+- Ad-hoc signing, strict signature verification, install and launch: exit 0.
 
 No browser/native automation surface is available in this environment. Source inspection and component tests cannot certify rendered spacing, contrast or visual appeal. The user must confirm the actual installed app. Live SSH/Telegram image delivery remains outside this redesign's verification scope.
 
 ## Integration
 
-Pending final build/review before local fast-forward and recoverable installation. Existing app was not running during the pre-install probe (`ECONNREFUSED` on 9900; no `maestro` process), so that failed probe is not claimed as runtime success.
+Locally fast-forwarded `feat/control-door` to implementation `68d3183`; nothing pushed. Branch/worktree retained. Existing app was not running during the pre-install probe (`ECONNREFUSED` on 9900; no `maestro` process), so no live process was interrupted.
+
+Installed `/Applications/Vanguard.app`, launched as PID 13888. Previous app is recoverable at `/Users/aoreilly/Library/Application Support/Vanguard-rollback.6H0cxw/Vanguard.app`. Built and installed binaries both have SHA-256 `20d712bd3b12b4d4bc6fa7322cff5577b30e12e82e6a2548477b61022465607b`.
+
+The first image auth smoke probe used an incorrect URL and returned 404 (assertion exit 1). Source confirmed the route is `/control/image/{session_id}`; the corrected unauthenticated probe returns 401, while authenticated `/control/sessions` returns 200. This proves endpoint availability/auth rejection, not real attachment delivery or rendered UI behaviour.
