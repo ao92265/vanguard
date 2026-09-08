@@ -3,12 +3,13 @@ import {
   ArrowLeft,
   ExternalLink,
   Factory,
+  Plus,
   RefreshCw,
   Send,
   SlidersHorizontal,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ControlPanel } from "@/components/factory/control/ControlPanel";
 import { relAgo } from "@/components/factory/control/primitives";
 import { EngineBadge } from "@/components/factory/EngineBadge";
@@ -40,7 +41,7 @@ function runBadge(status: string): string {
 }
 
 const fieldClass =
-  "w-full rounded border border-maestro-border bg-maestro-card px-2 py-1.5 text-[12px] text-maestro-text placeholder:text-maestro-muted/60 focus:border-maestro-accent/50 focus:outline-none";
+  "w-full rounded-md border border-maestro-border bg-maestro-surface px-3 py-2.5 text-sm text-maestro-text placeholder:text-maestro-muted focus:border-maestro-accent focus:outline-none";
 const labelClass = "text-[10px] font-semibold uppercase tracking-wider text-maestro-muted";
 
 function linesToList(value: string): string[] {
@@ -84,8 +85,15 @@ function SpecForm() {
   }, [title, problem, audience, mustHaves, nonGoals, successCriteria, submit]);
 
   return (
-    <div className="flex w-80 shrink-0 flex-col gap-2.5 overflow-y-auto border-r border-maestro-border p-3">
-      <h2 className={labelClass}>Hand ACT a spec</h2>
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-5 p-6">
+      <div>
+        <h2 className="text-xl font-semibold tracking-tight text-maestro-text">
+          Define the next run
+        </h2>
+        <p className="mt-2 text-sm text-maestro-muted">
+          Describe the problem and the result you need. ACT will plan the work.
+        </p>
+      </div>
       <label className="flex flex-col gap-1">
         <span className={labelClass}>Title</span>
         <input
@@ -337,6 +345,12 @@ type FactoryTab = "runs" | "control";
  */
 export function FactoryView({ onClose }: FactoryViewProps) {
   const [tab, setTab] = useState<FactoryTab>("runs");
+  const [specOpen, setSpecOpen] = useState(false);
+  const newRunRef = useRef<HTMLButtonElement>(null);
+  const specRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (specOpen && tab === "runs") specRef.current?.querySelector("input")?.focus();
+  }, [specOpen, tab]);
   const { runs, gatedRuns, fetchedAt, error, isPolling, detail, refresh, openDetail, closeDetail } =
     useActStore();
 
@@ -368,9 +382,13 @@ export function FactoryView({ onClose }: FactoryViewProps) {
   return (
     /* z-50: same overlay shell as Home/Landscape (eagle zoom is z-40). */
     <div className="absolute inset-0 z-50 flex flex-col bg-maestro-bg">
-      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-maestro-border px-3">
-        <Factory size={13} className="text-maestro-muted" />
-        <span className="text-[12px] font-semibold text-maestro-text">Factory</span>
+      <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-maestro-border px-8 py-6">
+        <div className="mr-auto">
+          <h1 className="text-3xl font-semibold tracking-tight text-maestro-text">Factory</h1>
+          <p className="mt-2 text-xs text-maestro-muted">
+            Follow each run. Resolve the decisions that need you.
+          </p>
+        </div>
         <EngineBadge runsFetchedAt={fetchedAt} stale={stale} />
         <div className="flex overflow-hidden rounded border border-maestro-border">
           {(
@@ -405,6 +423,19 @@ export function FactoryView({ onClose }: FactoryViewProps) {
         <button
           type="button"
           onClick={() => {
+            setTab("runs");
+            setSpecOpen(true);
+          }}
+          aria-expanded={specOpen && tab === "runs"}
+          ref={newRunRef}
+          className="flex min-h-10 items-center gap-2 rounded-md bg-maestro-accent px-4 text-xs font-medium text-maestro-bg"
+        >
+          <Plus size={14} />
+          New run
+        </button>
+        <button
+          type="button"
+          onClick={() => {
             void (tab === "control" ? refreshControl() : refresh());
           }}
           disabled={tabIsPolling}
@@ -423,21 +454,43 @@ export function FactoryView({ onClose }: FactoryViewProps) {
         </button>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         {tab === "control" && <ControlPanel />}
-        {tab === "runs" && <SpecForm />}
+        <section
+          ref={specRef}
+          aria-label="New run specification"
+          hidden={tab !== "runs" || !specOpen}
+          className={tab === "runs" && specOpen ? "min-w-0 flex-1 overflow-y-auto" : "hidden"}
+        >
+          <div className="mx-auto flex max-w-2xl justify-end px-6 pt-4">
+            <button
+              type="button"
+              onClick={() => {
+                setSpecOpen(false);
+                newRunRef.current?.focus();
+              }}
+              className="flex min-h-10 items-center gap-2 rounded-md px-3 text-xs text-maestro-muted hover:bg-maestro-card"
+              aria-label="Close spec editor"
+            >
+              <ArrowLeft size={14} />
+              Back to runs
+            </button>
+          </div>
+          <SpecForm />
+        </section>
         {tab === "runs" &&
+          !specOpen &&
           (detail ? (
             <RunDetail onBack={closeDetail} />
           ) : (
-            <div className="flex flex-1 flex-col gap-1.5 overflow-y-auto p-3">
+            <div className="flex min-w-0 flex-1 flex-col gap-3 overflow-y-auto px-8 py-6">
               {runs.length === 0 ? (
                 <p className="rounded border border-dashed border-maestro-border px-3 py-2 text-[11px] text-maestro-muted/70">
                   {engineState === "starting"
                     ? "ACT is starting. The list fills itself as soon as it answers."
                     : offline
                       ? "ACT is not running. Press Start ACT above and the factory picks it up on its own."
-                      : "No runs yet. Hand over a spec on the left."}
+                      : "No runs yet. Choose New run to hand over a spec."}
                 </p>
               ) : (
                 runs.map((run) => (

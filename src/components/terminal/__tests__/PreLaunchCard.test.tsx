@@ -54,6 +54,17 @@ describe("PreLaunchCard branch creation", () => {
   });
 
   /** Helper to open the branch dropdown */
+  it("keeps launch available while advanced integrations are collapsed", () => {
+    render(<PreLaunchCard {...defaultProps} />);
+    expect(screen.queryByText("No MCP servers configured")).not.toBeVisible();
+    expect(screen.getByRole("button", { name: "Launch Session" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: /Advanced settings/ }));
+    expect(screen.getByText("No MCP servers configured")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: /Advanced settings/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Launch Session" }));
+    expect(defaultProps.onLaunch).toHaveBeenCalledTimes(1);
+  });
+
   function openBranchDropdown() {
     // The branch selector button contains the display branch name ("main")
     // and a GitBranch icon. Find and click it.

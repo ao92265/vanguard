@@ -610,6 +610,58 @@
   container-type: inline-size;
 }
 
+.inbox-screen {
+  container-type: inline-size;
+}
+
+.inbox-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.9fr);
+  align-items: start;
+}
+
+.inbox-detail {
+  position: sticky;
+  top: 0;
+  max-height: 100%;
+  overflow-y: auto;
+}
+
+.inbox-detail .inbox-actions > button:first-child {
+  flex-basis: 100%;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.inbox-detail .inbox-actions .truncate {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@container (max-width: 760px) {
+  .inbox-workspace {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .inbox-queue,
+  .inbox-detail {
+    width: 100%;
+  }
+
+  .inbox-detail {
+    position: static;
+    max-height: none;
+    border-left: 0;
+    border-bottom: 1px solid rgb(var(--maestro-border));
+  }
+
+  .inbox-detail[data-selected="true"] {
+    order: -1;
+  }
+}
+
 .work-item {
   display: grid;
   grid-template-columns: minmax(140px, 0.65fr) minmax(0, 1.7fr) auto;

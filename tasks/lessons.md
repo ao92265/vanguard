@@ -14,3 +14,9 @@
 - **[2026-08-25] `biome-ignore` split across two lines is silently ignored**: biome
   reported both the suppression as unused *and* the original rule as violated. → **Fix**:
   keep the whole `biome-ignore <rule>: <reason>` on one line, however long.
+- **[2026-09-08] Inspector state survived switching the selected item**: a rename
+  draft remained mounted for another session. → **Fix**: key the detail action subtree
+  by stable item identity and test switching while editing, including focus return.
+- **[2026-09-08] A synthetic PNG probe was too short for real validation**: the
+  production service correctly rejected it. → **Fix**: use an existing real image
+  asset when validating byte-preserving delivery, not a signature-only sample.

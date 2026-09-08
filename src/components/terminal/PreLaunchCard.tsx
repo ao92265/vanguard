@@ -209,6 +209,7 @@ export function PreLaunchCard({
   isZoomed = false,
   onToggleZoom,
 }: PreLaunchCardProps) {
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [modeDropdownOpen, setModeDropdownOpen] = useState(false);
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
   const [mcpDropdownOpen, setMcpDropdownOpen] = useState(false);
@@ -475,13 +476,23 @@ export function PreLaunchCard({
     // `my-auto` on the innermost card vertically centers it when there is
     // surplus room, and collapses to 0 (top-aligned, scrollable) when the
     // pane is too short to fit the whole card.
-    <div className="content-dark terminal-cell flex h-full flex-col bg-maestro-bg">
-      <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto p-4">
+    <div className="session-setup terminal-cell flex h-full flex-col bg-maestro-bg">
+      <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto p-6">
         {/* Card content */}
-        <div className="flex w-full max-w-xs flex-col gap-4 my-auto">
+        <div className="flex w-full max-w-xl flex-col gap-5 py-4">
           {/* Header with remove button */}
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-maestro-text">Configure Session</span>
+            <div className="min-w-0">
+              <h2 className="text-2xl font-semibold tracking-tight text-maestro-text">
+                Start a session
+              </h2>
+              <p
+                className="mt-2 truncate text-xs text-maestro-muted"
+                title={selectedRepoPath || projectPath}
+              >
+                {selectedRepoPath || projectPath}
+              </p>
+            </div>
             <div className="flex items-center gap-1">
               {/* Zoom toggle button */}
               {onToggleZoom && (
@@ -1366,8 +1377,32 @@ export function PreLaunchCard({
             </div>
           )}
 
+          <button
+            type="button"
+            aria-expanded={advancedOpen}
+            aria-controls={`advanced-${slot.id} integrations-${slot.id}`}
+            onClick={() => {
+              setAdvancedOpen(!advancedOpen);
+              setMcpDropdownOpen(false);
+              setPluginsSkillsDropdownOpen(false);
+            }}
+            className="flex min-h-11 items-center justify-between border-t border-maestro-border pt-3 text-xs font-medium text-maestro-muted hover:text-maestro-text"
+          >
+            Advanced settings{" "}
+            <span className="flex items-center gap-2">
+              <span>
+                {slot.enabledMcpServers.length} servers · {slot.enabledPlugins.length} plugins
+              </span>
+              <ChevronDown size={14} className={advancedOpen ? "rotate-180" : ""} />
+            </span>
+          </button>
           {/* MCP Servers Selector */}
-          <div className="relative" ref={mcpDropdownRef}>
+          <div
+            id={`advanced-${slot.id}`}
+            hidden={!advancedOpen}
+            className={advancedOpen ? "relative" : "hidden"}
+            ref={mcpDropdownRef}
+          >
             <label
               htmlFor="prelaunch-mcp-servers"
               className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-maestro-muted"
@@ -1497,7 +1532,12 @@ export function PreLaunchCard({
           </div>
 
           {/* Plugins & Skills Selector */}
-          <div className="relative" ref={pluginsSkillsDropdownRef}>
+          <div
+            id={`integrations-${slot.id}`}
+            hidden={!advancedOpen}
+            className={advancedOpen ? "relative" : "hidden"}
+            ref={pluginsSkillsDropdownRef}
+          >
             <label
               htmlFor="prelaunch-plugins-skills"
               className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-maestro-muted"
@@ -1817,7 +1857,7 @@ export function PreLaunchCard({
           <button
             type="button"
             onClick={onLaunch}
-            className="flex items-center justify-center gap-2 rounded bg-maestro-accent px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-maestro-accent/80"
+            className="flex min-h-11 items-center justify-center gap-2 rounded-md bg-maestro-accent px-4 py-2.5 text-sm font-medium text-maestro-bg transition-colors hover:bg-maestro-accent/80"
           >
             <Play size={16} fill="currentColor" />
             {slot.resumeSessionId ? "Resume Session" : "Launch Session"}

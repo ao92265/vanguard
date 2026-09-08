@@ -15,7 +15,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { ClosedBatchShelf } from "@/components/home/ClosedBatchShelf";
 import { ReplyDraftDialog } from "@/components/home/ReplyDraftDialog";
@@ -70,8 +70,35 @@ function relAgo(iso: string): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-const rowClass =
-  "flex min-h-14 w-full items-center gap-3 rounded-lg border border-maestro-border/60 bg-maestro-surface px-4 py-3 text-left hover:border-maestro-muted";
+const rowClass = "inbox-actions flex min-h-14 w-full flex-wrap items-center gap-3 py-4 text-left";
+
+function itemSummary(item: BandItem): { title: string; context: string; detail: string } {
+  switch (item.kind) {
+    case "session":
+      return {
+        title: item.session.name || item.projectName,
+        context: item.projectName,
+        detail:
+          item.session.needsInputPrompt ||
+          item.session.statusMessage ||
+          SESSION_STATUS_BADGES[item.session.status].label,
+      };
+    case "handoff":
+      return { title: item.handoff.repo, context: "Handoff", detail: item.handoff.lastAction };
+    case "pr":
+      return {
+        title: `#${item.pr.number} ${item.pr.title}`,
+        context: item.projectName,
+        detail: item.pr.mergedAt ? "Merged pull request" : "Changes requested",
+      };
+    case "run":
+      return {
+        title: item.run.title,
+        context: "Factory",
+        detail: item.run.stage || item.run.status,
+      };
+  }
+}
 
 function StatusBadge({ status }: { status: BackendSessionStatus }) {
   const badge = SESSION_STATUS_BADGES[status];
@@ -319,21 +346,23 @@ function HandoffRow({
 }
 
 function Band({
+  onInspect,
+  selectedKey,
   title,
   icon,
   items,
   emptyText,
   stale,
   action,
-  renderItem,
 }: {
+  onInspect: (item: BandItem, trigger: HTMLElement) => void;
+  selectedKey: string | null;
   title: string;
   icon: React.ReactNode;
   items: BandItem[];
   emptyText: string;
   stale?: string | null;
   action?: React.ReactNode;
-  renderItem: (item: BandItem, i: number) => React.ReactNode;
 }) {
   return (
     <section>
@@ -359,7 +388,30 @@ function Band({
           {emptyText}
         </p>
       ) : (
-        <div className="flex flex-col gap-1.5">{items.map(renderItem)}</div>
+        <div className="flex flex-col gap-1">
+          {items.map((item) => {
+            const key = bandItemKey(item);
+            const summary = itemSummary(item);
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={(event) => onInspect(item, event.currentTarget)}
+                aria-label={`Inspect ${summary.context}: ${summary.title}`}
+                aria-pressed={selectedKey === key}
+                className={`flex min-h-20 w-full flex-col gap-2 rounded-md px-4 py-3 text-left transition-colors ${selectedKey === key ? "bg-maestro-accent/10 text-maestro-text" : "text-maestro-text hover:bg-maestro-surface"}`}
+              >
+                <span className="flex w-full min-w-0 items-baseline justify-between gap-3">
+                  <span className="truncate text-sm font-medium">{summary.title}</span>
+                  <span className="shrink-0 text-[10px] text-maestro-muted">{summary.context}</span>
+                </span>
+                <span className="line-clamp-2 text-xs leading-relaxed text-maestro-muted">
+                  {summary.detail}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       )}
     </section>
   );
@@ -389,6 +441,13 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
   const unsnooze = useSnoozeStore((s) => s.unsnooze);
   const closedBatches = useClosedSessionsStore(useShallow((s) => s.batches));
   const [statusFilter, setStatusFilter] = useState<BackendSessionStatus | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const detailRef = useRef<HTMLElement>(null);
+  const inspectTriggerRef = useRef<HTMLElement | null>(null);
+  const focusDetail = useCallback(() => {
+    detailRef.current?.focus({ preventScroll: true });
+    detailRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, []);
 
   const bandTabs: BandTab[] = useMemo(
     () =>
@@ -458,6 +517,23 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
     () => partitionSnoozed(filtered(bands.blocked), snoozeEntries, Date.now()),
     [bands.blocked, filtered, snoozeEntries],
   );
+  const selectedItem = [
+    ...blocked.visible,
+    ...filtered(bands.landed),
+    ...filtered(bands.running),
+  ].find((item) => bandItemKey(item) === selectedKey);
+  const inspect = (item: BandItem, trigger: HTMLElement) => {
+    inspectTriggerRef.current = trigger;
+    const key = bandItemKey(item);
+    setSelectedKey(key);
+    if (key === selectedKey) focusDetail();
+  };
+  useEffect(() => {
+    if (selectedKey) focusDetail();
+  }, [selectedKey, focusDetail]);
+  useEffect(() => {
+    if (selectedKey && !selectedItem) setSelectedKey(null);
+  }, [selectedItem, selectedKey]);
 
   const handleRestore = useCallback(
     (batchId: string) => {
@@ -510,10 +586,10 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
 
   return (
     /* z-50 like the landscape overlay: the zoomed eagle pane sits at z-40. */
-    <div className="absolute inset-0 z-50 flex flex-col bg-maestro-bg">
+    <div className="inbox-screen absolute inset-0 z-50 flex flex-col bg-maestro-bg">
       {/* Toolbar */}
       <div className="flex h-10 shrink-0 items-center gap-1.5 overflow-x-auto border-b border-maestro-border px-3">
-        <span className="mr-1 shrink-0 text-[12px] font-semibold text-maestro-text">Home</span>
+        <span className="mr-1 shrink-0 text-[12px] font-semibold text-maestro-text">Inbox</span>
 
         {/* Fleet strip: one chip per status with a live count; click filters.
             Idle sessions live in no band, so that chip is a count, not a filter
@@ -593,18 +669,20 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
       </div>
 
       {/* Bands */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 px-6 py-8">
+      <div className="inbox-workspace min-h-0 flex-1 overflow-y-auto">
+        <div className="inbox-queue flex min-w-0 flex-col gap-6 px-6 py-8">
           <header>
-            <h1 className="text-2xl font-semibold tracking-tight text-maestro-text">
-              Decision queue
+            <h1 className="text-3xl font-semibold tracking-tight text-maestro-text">
+              Your attention
             </h1>
             <p className="mt-2 text-sm text-maestro-muted">
-              Review blocked agents, recent results and running sessions.
+              {blocked.visible.length} items need a decision. Select one to see the context.
             </p>
           </header>
           <ClosedBatchShelf onRestore={handleRestore} />
           <Band
+            onInspect={inspect}
+            selectedKey={selectedItem ? selectedKey : null}
             title="Blocked on you"
             icon={<CircleDot size={12} className="text-maestro-accent" />}
             items={blocked.visible}
@@ -619,31 +697,6 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
                   +{bands.moreHandoffs} more handoffs on disk
                 </span>
               ) : undefined
-            }
-            renderItem={(item, i) =>
-              item.kind === "session" ? (
-                <SessionRow
-                  key={`s${item.session.id}`}
-                  item={item}
-                  onNavigate={onNavigate}
-                  /* Only a session that actually asked something has a
-                     question worth drafting against. */
-                  onDraftReply={item.session.status === "NeedsInput" ? handleDraftReply : undefined}
-                  snoozeKey={bandItemKey(item)}
-                />
-              ) : item.kind === "pr" ? (
-                <PrRow key={`p${item.pr.url}`} item={item} />
-              ) : item.kind === "run" ? (
-                <RunRow key={`r${item.run.id}`} item={item} />
-              ) : (
-                <HandoffRow
-                  key={`h${item.handoff.slug}-${i}`}
-                  item={item}
-                  onLaunch={launchHandoff}
-                  onDismiss={handleDismissHandoff}
-                  snoozeKey={bandItemKey(item)}
-                />
-              )
             }
           />
 
@@ -691,6 +744,8 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
           )}
           <Band
             title="Landed since you looked"
+            onInspect={inspect}
+            selectedKey={selectedItem ? selectedKey : null}
             icon={<CheckCircle2 size={12} className="text-maestro-green" />}
             items={filtered(bands.landed)}
             emptyText="Nothing new has landed."
@@ -715,26 +770,91 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
                 Mark seen
               </button>
             }
-            renderItem={(item, i) =>
-              item.kind === "session" ? (
-                <SessionRow key={`s${item.session.id}`} item={item} onNavigate={onNavigate} />
-              ) : (
-                <PrRow key={`p${item.kind === "pr" ? item.pr.url : i}`} item={item} />
-              )
-            }
           />
           <Band
             title="Running"
+            onInspect={inspect}
+            selectedKey={selectedItem ? selectedKey : null}
             icon={<Inbox size={12} className="text-maestro-blue" />}
             items={filtered(bands.running)}
             emptyText="Nothing is running."
-            renderItem={(item) =>
-              item.kind === "session" ? (
-                <SessionRow key={`s${item.session.id}`} item={item} onNavigate={onNavigate} />
-              ) : null
-            }
           />
         </div>
+        <section
+          ref={detailRef}
+          tabIndex={-1}
+          aria-label="Work detail"
+          data-selected={!!selectedItem}
+          className="inbox-detail min-w-0 border-l border-maestro-border bg-maestro-surface/40 px-6 py-8"
+        >
+          {selectedItem ? (
+            <>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs text-maestro-muted">{itemSummary(selectedItem).context}</p>
+                  <h2 className="mt-3 break-words text-2xl font-semibold tracking-tight text-maestro-text">
+                    {itemSummary(selectedItem).title}
+                  </h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedKey(null);
+                    inspectTriggerRef.current?.focus();
+                  }}
+                  aria-label="Close work detail"
+                  className="rounded-md p-3 text-maestro-muted hover:bg-maestro-card"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div key={selectedKey} className="mt-6 border-t border-maestro-border">
+                {selectedItem.kind === "session" ? (
+                  <SessionRow
+                    item={selectedItem}
+                    onNavigate={onNavigate}
+                    onDraftReply={
+                      selectedItem.session.status === "NeedsInput" ? handleDraftReply : undefined
+                    }
+                    snoozeKey={
+                      blocked.visible.some((item) => bandItemKey(item) === selectedKey)
+                        ? bandItemKey(selectedItem)
+                        : undefined
+                    }
+                  />
+                ) : selectedItem.kind === "pr" ? (
+                  <PrRow item={selectedItem} />
+                ) : selectedItem.kind === "run" ? (
+                  <RunRow item={selectedItem} />
+                ) : (
+                  <>
+                    <p className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-maestro-text">
+                      {[selectedItem.handoff.lastAction, ...selectedItem.handoff.asks]
+                        .filter(Boolean)
+                        .join("\n\n")}
+                    </p>
+                    <HandoffRow
+                      item={selectedItem}
+                      onLaunch={launchHandoff}
+                      onDismiss={handleDismissHandoff}
+                      snoozeKey={bandItemKey(selectedItem)}
+                    />
+                  </>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="flex min-h-64 flex-col justify-center">
+              <Inbox size={28} strokeWidth={1.2} className="text-maestro-muted" />
+              <h2 className="mt-5 text-xl font-medium text-maestro-text">
+                Room to make a decision
+              </h2>
+              <p className="mt-3 max-w-sm text-sm leading-relaxed text-maestro-muted">
+                Select an item from the queue. Inspecting it will not launch work or send a reply.
+              </p>
+            </div>
+          )}
+        </section>
       </div>
 
       {/* Suggestion panel for a blocked session. Renders nothing with no target. */}
