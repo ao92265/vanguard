@@ -306,10 +306,11 @@ describe("ledgerTotals", () => {
   });
 
   it("treats an absent identity as absent whichever flavour of absent it gets", () => {
-    /* `buildLedgerEntries` only ever writes `string | null`, so `undefined`
-       does not arrive from the builder. It arrives from every other way an
-       entry gets made: a hand-built object, a fixture, an older record read
-       back. The counted output asserted here is the one the real system
+    /* `buildLedgerEntries` only ever writes `string | null`, and today it is the
+       only producer: nothing persists or deserializes a `LedgerEntry`. So
+       `undefined` reaches here from hand-built objects and fixtures only, which
+       is exactly how the bug this guards got in. Keep the check total anyway,
+       because the type permits it. The counted output asserted here is the one the real system
        produces for a record that named no project (a run with no repo URL
        gives exactly `projects: 0, unattributed: 1`), and the point of the
        identity split was that such a record must never inflate `projects`.

@@ -385,11 +385,13 @@ export function PreLaunchCard({
   const selectedBranchInfo = slot.branch
     ? branches.find((b) => b.name === slot.branch)
     : currentBranch;
-  /* The branch the launch will really pass through, or null while nothing has
-     settled it yet: an explicit choice, else the polled current branch, else
-     nothing. `launchSlotInner` uses the same precedence, handing
-     `slot.branch ?? null` to `prepareSessionWorktree` and reading the branch
-     back off the result when it had none to give. */
+  /* What the panel knows about the branch: an explicit choice, else the polled
+     current branch, else null because nothing has settled it yet.
+     This is NOT a promise about where the launch lands. With no explicit choice
+     and `worktreeMode: "auto"`, the backend reuses the first managed worktree it
+     finds and returns whatever branch that one is on, falling back to HEAD only
+     when there is none. So an explicit choice is exact, and everything else is
+     this panel's best reading. Say less here rather than more. */
   const resolvedBranch = selectedBranchInfo?.name ?? slot.branch ?? null;
   /* "Current" is the picker button's label for an unsettled branch, and reads
      as one there. It is a placeholder, so it stays inside the picker: see the
@@ -1912,8 +1914,12 @@ export function PreLaunchCard({
               {slot.resumeSessionId ? " · resuming a previous conversation" : ""}
             </ResolveRow>
             <ResolveRow label="branch">
-              {isGitRepo || isMultiRepo
-                ? (resolvedBranch ?? "resolved at launch, from this repository's checkout")
+              {/* A multi-repo workspace can hold folders that are not checkouts, and
+                  they are selectable. `isMultiRepo` alone kept saying something about a
+                  branch for those, so the selected repo has to answer for itself, the
+                  same test the picker above already uses. */}
+              {isGitRepo || (isMultiRepo && selectedRepo?.isGitRepo)
+                ? (resolvedBranch ?? "resolved at launch")
                 : "not a git repository"}
             </ResolveRow>
             <ResolveRow label="working directory">{resolvedWorkingDirectory}</ResolveRow>

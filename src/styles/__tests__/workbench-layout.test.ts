@@ -88,9 +88,17 @@ describe("workbench rail flow", () => {
 });
 
 /**
- * Every surface the design 1b port authored or rewrote. An accent-filled
- * control on one of these is the port's to get right; the thirty-odd accent
- * buttons elsewhere in the app predate it and are not in scope here.
+ * The design 1b surfaces whose accent fills are clean today, so this guard can
+ * hold them at zero. An accent-filled control added to one of these is the
+ * port's to get right; the thirty-odd accent buttons elsewhere in the app
+ * predate it and are not in scope here.
+ *
+ * Deliberately NOT every file the port touched. `PreLaunchCard.tsx` is the
+ * exception: the port authored its resolves-to panel, but the file also carries
+ * four pre-existing hardcoded fills (three `text-white`, one `text-maestro-bg`)
+ * from the out-of-scope bucket, so adding it would fail on work this branch
+ * never claimed. It goes on this list when that bucket gets its own sweep, and
+ * until then a new accent control in that file is unguarded.
  */
 const PORTED_SURFACES = [
   "src/App.tsx",

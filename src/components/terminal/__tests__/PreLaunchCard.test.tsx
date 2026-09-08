@@ -400,17 +400,47 @@ describe("PreLaunchCard resolves-to panel", () => {
     // does leave it open here: it passes `slot.branch ?? null` to
     // `prepareSessionWorktree` and takes the branch back off the result
     // (TerminalGrid.tsx:1007, :1013).
+    // Only `branches: []` is load-bearing: the row reads `resolvedBranch`, which
+    // is derived from `branches` and the slot, and never looks at the loading
+    // flag. Left at its default so the test states one condition, not two.
+    render(<PreLaunchCard {...baseProps} branches={[]} slot={makeSlot({ branch: null })} />);
+    const panel = summary();
+    expect(panel).not.toHaveTextContent("Current");
+    expect(panel).toHaveTextContent("resolved at launch");
+  });
+
+  it("does not describe a non-git folder in a multi-repo workspace as having a branch", () => {
+    // A multi-repo workspace can hold folders that are not checkouts, and they
+    // are selectable: the repo row's select button has no git guard, and the
+    // list tags them "no git". Selecting one makes TerminalGrid set `isGitRepo`
+    // false (git_branches really does reject for a non-git path) while
+    // `isMultiRepo` stays true. Guarding on `isMultiRepo` alone therefore kept
+    // the row talking about a branch for a folder that has none.
+    // `isMultiRepo` is derived, not passed: the component computes it from
+    // `workspaceType` and a non-empty `repositories`, so those are what a real
+    // multi-repo workspace hands it.
     render(
       <PreLaunchCard
         {...baseProps}
+        isGitRepo={false}
+        workspaceType="multi-repo"
+        repositories={[
+          {
+            name: "notes",
+            path: "/tmp/notes",
+            isGitRepo: false,
+            currentBranch: null,
+            remoteUrl: null,
+          },
+        ]}
+        selectedRepoPath="/tmp/notes"
         branches={[]}
-        isLoadingBranches={true}
         slot={makeSlot({ branch: null })}
       />,
     );
     const panel = summary();
-    expect(panel).not.toHaveTextContent("Current");
-    expect(panel).toHaveTextContent("resolved at launch, from this repository's checkout");
+    expect(panel).toHaveTextContent("not a git repository");
+    expect(panel).not.toHaveTextContent("resolved at launch");
   });
 
   it("states image staging and retention as this backend performs them", () => {
