@@ -25,6 +25,11 @@ function entry(over: Partial<LedgerEntry> & { id: string }): LedgerEntry {
   return {
     kind: "handoff",
     timestamp: at(2026, 9, 8, 10),
+    /* `LedgerEntry.projectKey` is required and the builder always writes it.
+       Leaving it off here made the fixture a shape the real system cannot
+       produce, and tsconfig excludes the test directories, so nothing said
+       so. */
+    projectKey: "proj-a",
     project: "proj-a",
     title: "did a thing",
     detail: null,
@@ -298,5 +303,28 @@ describe("ledgerTotals", () => {
     const totals = ledgerTotals(groups);
     expect(totals.projects).toBe(1);
     expect(totals.unattributed).toBe(0);
+  });
+
+  it("treats an absent identity as absent whichever flavour of absent it gets", () => {
+    /* `buildLedgerEntries` only ever writes `string | null`, so `undefined`
+       does not arrive from the builder. It arrives from every other way an
+       entry gets made: a hand-built object, a fixture, an older record read
+       back. The counted output asserted here is the one the real system
+       produces for a record that named no project (a run with no repo URL
+       gives exactly `projects: 0, unattributed: 1`), and the point of the
+       identity split was that such a record must never inflate `projects`.
+       Discriminating on `=== null` alone made that guarantee depend on which
+       flavour of absent the caller happened to hold. */
+    const absent = [null, undefined] as const;
+    for (const projectKey of absent) {
+      const groups = groupLedgerEntries(
+        [entry({ id: `no-identity-${String(projectKey)}`, projectKey })],
+        NOW,
+      );
+
+      const totals = ledgerTotals(groups);
+      expect(totals.projects, `projectKey: ${String(projectKey)}`).toBe(0);
+      expect(totals.unattributed, `projectKey: ${String(projectKey)}`).toBe(1);
+    }
   });
 });

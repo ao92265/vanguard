@@ -35,9 +35,9 @@ export function BoardColumn({
     <section className="flex min-h-0 min-w-0 flex-col" aria-label={title}>
       <div className="flex min-h-[26px] items-center gap-2 px-1 pb-[10px]">
         <span className={`h-[7px] w-[7px] shrink-0 rounded-full ${dotClass}`} />
-        <span className="shrink-0 truncate font-mono text-[11px] font-semibold uppercase tracking-[0.07em] text-maestro-muted">
+        <h2 className="shrink-0 truncate font-mono text-[11px] font-semibold uppercase tracking-[0.07em] text-maestro-muted">
           {title}
-        </span>
+        </h2>
         <span className="shrink-0 font-mono text-[11px] font-semibold text-maestro-muted">
           {count}
         </span>

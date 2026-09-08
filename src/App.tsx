@@ -1107,11 +1107,8 @@ function App() {
 
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         <TopBar
-          layout="rail"
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
-          onToggleGitPanel={() => setGitPanelOpen((prev) => !prev)}
-          gitPanelOpen={gitPanelOpen}
           eagleView={eagleView}
           onToggleEagleView={() => {
             handleWorkbenchNavigate(false);
@@ -1152,29 +1149,15 @@ function App() {
           pulseViewOpen={pulseViewOpen}
           onTogglePulseView={handleTogglePulseView}
           homeAttention={needsInputAnywhere}
-          onToggleMemoryPanel={() => handleToggleUtilityPanel("memory")}
-          processesPanelOpen={utilityPanel === "processes"}
-          onToggleProcessesPanel={() => handleToggleUtilityPanel("processes")}
-          aiPanelOpen={utilityPanel === "ai"}
-          onToggleAiPanel={() => handleToggleUtilityPanel("ai")}
-          onWatchdogNavigate={handleWatchdogNavigate}
           onOpenExtensions={handleOpenExtensions}
           onOpenWorkflows={handleOpenWorkflows}
           workflowsViewOpen={workflowsViewOpen}
           projectNavigation={
             <ProjectTabs
-              vertical
-              tabs={tabs.map((t) => ({
-                id: t.id,
-                name: t.name,
-                active: t.active,
-                color: projectColors.get(t.name) ?? projectColorFor(t.name),
-              }))}
+              tabs={tabs.map((t) => ({ id: t.id, name: t.name, active: t.active }))}
               onSelectTab={selectTab}
               onCloseTab={handleCloseTab}
               onNewTab={handleOpenProject}
-              onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
-              sidebarOpen={sidebarOpen}
               onReorderTab={reorderTabs}
               onMoveTab={moveTab}
             />

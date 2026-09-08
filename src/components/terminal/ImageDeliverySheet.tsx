@@ -352,7 +352,7 @@ export function ImageDeliverySheet({
               type="button"
               onClick={deliver}
               disabled={!canDeliver}
-              className="rounded-[9px] bg-maestro-accent px-4 py-3 text-[13px] font-medium text-maestro-onAccent disabled:opacity-40"
+              className="rounded-[9px] bg-maestro-accent px-4 py-3 text-[13px] font-medium text-maestro-on-accent disabled:opacity-40"
             >
               Deliver image
             </button>

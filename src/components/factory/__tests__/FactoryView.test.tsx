@@ -45,6 +45,11 @@ beforeEach(() => {
   useActEngineStore.setState({ status: null, refresh: vi.fn().mockResolvedValue(undefined) });
 });
 
+it("titles the screen as a real heading, not a styled span", () => {
+  render(<FactoryView onClose={() => {}} />);
+  expect(screen.getByRole("heading", { level: 1, name: "Factory" })).toBeVisible();
+});
+
 it("keeps spec creation off the runs surface and preserves an unfinished draft when closed", () => {
   render(<FactoryView onClose={() => {}} />);
   expect(screen.queryByRole("textbox", { name: "Title" })).not.toBeInTheDocument();

@@ -385,7 +385,17 @@ export function PreLaunchCard({
   const selectedBranchInfo = slot.branch
     ? branches.find((b) => b.name === slot.branch)
     : currentBranch;
-  const displayBranch = selectedBranchInfo?.name ?? slot.branch ?? "Current";
+  /* The branch the launch will really pass through, or null while nothing has
+     settled it yet: an explicit choice, else the polled current branch, else
+     nothing. `launchSlotInner` uses the same precedence, handing
+     `slot.branch ?? null` to `prepareSessionWorktree` and reading the branch
+     back off the result when it had none to give. */
+  const resolvedBranch = selectedBranchInfo?.name ?? slot.branch ?? null;
+  /* "Current" is the picker button's label for an unsettled branch, and reads
+     as one there. It is a placeholder, so it stays inside the picker: see the
+     resolves-to panel for what an unsettled branch is called where a reader
+     takes the value for the branch itself. */
+  const displayBranch = resolvedBranch ?? "Current";
 
   // Separate local and remote branches
   const localBranches = branches.filter((b) => !b.isRemote);
@@ -1902,7 +1912,9 @@ export function PreLaunchCard({
               {slot.resumeSessionId ? " · resuming a previous conversation" : ""}
             </ResolveRow>
             <ResolveRow label="branch">
-              {isGitRepo || isMultiRepo ? displayBranch : "not a git repository"}
+              {isGitRepo || isMultiRepo
+                ? (resolvedBranch ?? "resolved at launch, from this repository's checkout")
+                : "not a git repository"}
             </ResolveRow>
             <ResolveRow label="working directory">{resolvedWorkingDirectory}</ResolveRow>
             <ResolveRow label="integrations">{integrationsSummary}</ResolveRow>

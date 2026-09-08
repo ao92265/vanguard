@@ -93,6 +93,11 @@ describe("PulseView", () => {
     vi.useRealTimers();
   });
 
+  it("titles the screen as a real heading, not a styled span", () => {
+    renderPulse();
+    expect(screen.getByRole("heading", { level: 1, name: "Pulse" })).toBeVisible();
+  });
+
   it("leads with the day's own headline counts at display size", () => {
     renderPulse();
 

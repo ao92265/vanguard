@@ -847,13 +847,17 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
 
   return (
     /* z-50 like the landscape overlay: the zoomed eagle pane sits at z-40. */
-    <div className="inbox-screen absolute inset-0 z-50 flex flex-col bg-maestro-bg">
+    <div className="absolute inset-0 z-50 flex flex-col bg-maestro-bg">
       <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-[34px] pb-2.5 pt-[26px]">
-        <span className="font-mono text-[13px] font-semibold uppercase tracking-[0.09em] text-maestro-muted">
-          Blocked on you
-        </span>
+        {/* The rail navigates here as "Inbox", so the title and the close
+            control say Inbox too. The reference's own words for this screen,
+            "Blocked on you", stay on the count beside it, which is where the
+            other five screens put what their number means. */}
+        <h1 className="font-mono text-[13px] font-semibold uppercase tracking-[0.09em] text-maestro-muted">
+          Inbox
+        </h1>
         <span className="font-mono text-[13px] font-semibold text-maestro-accent">
-          {blocked.visible.length}
+          {blocked.visible.length} blocked on you
         </span>
         <div className="flex-1" />
         {oldestBlocked && (
@@ -890,7 +894,7 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
           type="button"
           onClick={onClose}
           className="rounded p-1.5 text-maestro-muted transition-colors hover:bg-maestro-card hover:text-maestro-text"
-          aria-label="Close home"
+          aria-label="Close inbox"
         >
           <X size={14} />
         </button>

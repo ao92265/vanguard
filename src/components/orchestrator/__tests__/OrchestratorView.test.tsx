@@ -69,6 +69,11 @@ beforeEach(() => {
   });
 });
 
+it("titles the screen as a real heading, not a styled span", () => {
+  render(<OrchestratorView onClose={() => {}} />);
+  expect(screen.getByRole("heading", { level: 1, name: "Orchestrator" })).toBeVisible();
+});
+
 it("puts the goal and scope card above the proposal rows", () => {
   render(<OrchestratorView onClose={() => {}} />);
   const goal = screen.getByRole("region", { name: "Goal and scope" });

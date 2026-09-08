@@ -1,51 +1,31 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import type { ComponentProps } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-// TopBar reads the real Tauri window unconditionally on mount (the
-// minimize/maximize/close handlers close over it even though
-// hideWindowControls keeps those buttons out of these tests).
-vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: () => ({
-    minimize: vi.fn(),
-    toggleMaximize: vi.fn(),
-    close: vi.fn(),
-  }),
-}));
-
-import { useHealthStore } from "@/stores/useHealthStore";
 import { TopBar } from "../TopBar";
 
-function renderTopBar(overrides: Partial<ComponentProps<typeof TopBar>> = {}) {
-  const handlers = {
-    onToggleSidebar: vi.fn(),
-    onToggleLandscapeView: vi.fn(),
-    onToggleMemoryPanel: vi.fn(),
-    onOpenWorkflows: vi.fn(),
-    onOpenExtensions: vi.fn(),
-  };
-  render(<TopBar sidebarOpen hideWindowControls {...handlers} {...overrides} />);
-  return handlers;
-}
-
+/**
+ * TopBar's whole job is now mapping App's state onto the rail's destination
+ * and tool lists. The rail's own behaviour (hover labels, pinning, the More
+ * popup's focus handling) is covered by WorkbenchRail.test.tsx, and the
+ * toolbar those tests used to render was deleted along with its layout.
+ */
 describe("TopBar", () => {
-  beforeEach(() => {
-    useHealthStore.setState({ flags: [] });
-  });
-
   it("keeps Ledger distinct from Board and disables New session at capacity", () => {
     const ledger = vi.fn();
     const add = vi.fn();
     const board = vi.fn();
-    renderTopBar({
-      layout: "rail",
-      boardViewOpen: true,
-      ledgerViewOpen: true,
-      onOpenLedger: ledger,
-      onSetBoardView: board,
-      onAddSession: add,
-      canAddSession: false,
-    });
+    render(
+      <TopBar
+        sidebarOpen
+        onToggleSidebar={vi.fn()}
+        boardViewOpen
+        ledgerViewOpen
+        onOpenLedger={ledger}
+        onSetBoardView={board}
+        onAddSession={add}
+        canAddSession={false}
+      />,
+    );
     expect(screen.getByRole("button", { name: "Ledger" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("button", { name: "Board" })).not.toHaveAttribute("aria-current");
     fireEvent.click(screen.getByRole("button", { name: "Board" }));
@@ -58,13 +38,7 @@ describe("TopBar", () => {
   it("keeps the current rail destination open when selected again", () => {
     const toggle = vi.fn();
     render(
-      <TopBar
-        layout="rail"
-        sidebarOpen
-        onToggleSidebar={() => {}}
-        homeViewOpen
-        onToggleHomeView={toggle}
-      />,
+      <TopBar sidebarOpen onToggleSidebar={() => {}} homeViewOpen onToggleHomeView={toggle} />,
     );
     const inbox = screen.getByRole("button", { name: "Inbox" });
     expect(inbox).toHaveAttribute("aria-current", "page");
@@ -75,225 +49,35 @@ describe("TopBar", () => {
   it("routes Board and Terminals from the rail to their explicit destinations", () => {
     const select = vi.fn();
     const { rerender } = render(
-      <TopBar layout="rail" sidebarOpen onToggleSidebar={() => {}} onSetBoardView={select} />,
+      <TopBar sidebarOpen onToggleSidebar={() => {}} onSetBoardView={select} />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Board" }));
     expect(select).toHaveBeenLastCalledWith(true);
     rerender(
-      <TopBar
-        layout="rail"
-        sidebarOpen
-        boardViewOpen
-        onToggleSidebar={() => {}}
-        onSetBoardView={select}
-      />,
+      <TopBar sidebarOpen boardViewOpen onToggleSidebar={() => {}} onSetBoardView={select} />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Terminals" }));
     expect(select).toHaveBeenLastCalledWith(false);
   });
 
-  it("exposes the selected workspace view to keyboard and screen-reader users", () => {
-    const { rerender } = render(
+  it("dispatches the tools it buries behind More", () => {
+    const onOpenWorkflows = vi.fn();
+    const onOpenExtensions = vi.fn();
+    render(
       <TopBar
         sidebarOpen
-        hideWindowControls
-        onToggleSidebar={() => {}}
-        onToggleHomeView={() => {}}
-        homeViewOpen
+        onToggleSidebar={vi.fn()}
+        onOpenWorkflows={onOpenWorkflows}
+        onOpenExtensions={onOpenExtensions}
       />,
     );
-    expect(screen.getByRole("button", { name: "Home" })).toHaveAttribute("aria-pressed", "true");
-    rerender(
-      <TopBar
-        sidebarOpen
-        hideWindowControls
-        onToggleSidebar={() => {}}
-        onToggleHomeView={() => {}}
-        homeViewOpen={false}
-      />,
-    );
-    expect(screen.getByRole("button", { name: "Home" })).toHaveAttribute("aria-pressed", "false");
-  });
-
-  it("closes More with Escape and returns keyboard focus to its trigger", () => {
-    renderTopBar();
-    const trigger = screen.getByRole("button", { name: "More" });
-    fireEvent.click(trigger);
-    const item = screen.getByRole("button", { name: "Landscape" });
-    item.focus();
-    fireEvent.keyDown(item, { key: "Escape" });
-    expect(screen.queryByRole("button", { name: "Landscape" })).not.toBeInTheDocument();
-    expect(trigger).toHaveFocus();
-    expect(trigger).toHaveAttribute("aria-expanded", "false");
-  });
-
-  it("closes the project picker with Escape without launching a terminal", () => {
-    const add = vi.fn();
-    renderTopBar({
-      eagleView: true,
-      onAddSessionToProject: add,
-      eagleProjects: [{ tabId: "repo", name: "Vanguard", color: "violet", atMax: false }],
-    });
-    const trigger = screen.getByRole("button", { name: "Add terminal to project" });
-    fireEvent.click(trigger);
-    const project = screen.getByRole("button", { name: "Vanguard" });
-    project.focus();
-    fireEvent.keyDown(project, { key: "Escape" });
-    expect(screen.queryByRole("button", { name: "Vanguard" })).not.toBeInTheDocument();
-    expect(trigger).toHaveFocus();
-    expect(add).not.toHaveBeenCalled();
-  });
-
-  it("does not render the buttons cut by the declutter (Notes, Second Brain, Launch)", () => {
-    renderTopBar();
-    for (const label of ["Notes", "Second Brain", "Launch"]) {
-      expect(screen.queryByRole("button", { name: label })).not.toBeInTheDocument();
-    }
-    // Landscape and Memory also lose their standalone buttons — only the
-    // "Landscape view" aria-label is unique to the old button, so check that.
-    expect(screen.queryByRole("button", { name: "Landscape view" })).not.toBeInTheDocument();
-  });
-
-  it("renders the More menu closed by default and opens it on click", () => {
-    renderTopBar();
-    expect(screen.queryByRole("button", { name: "Landscape" })).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "More" }));
-
-    expect(screen.getByRole("button", { name: "Landscape" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Memory" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Workflows" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Extensions" })).toBeInTheDocument();
-  });
-
-  it("dispatches onToggleLandscapeView and closes the menu", () => {
-    const handlers = renderTopBar();
-    fireEvent.click(screen.getByRole("button", { name: "More" }));
-
-    fireEvent.click(screen.getByRole("button", { name: "Landscape" }));
-
-    expect(handlers.onToggleLandscapeView).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole("button", { name: "Landscape" })).not.toBeInTheDocument();
-  });
-
-  it("dispatches onToggleMemoryPanel", () => {
-    const handlers = renderTopBar();
-    fireEvent.click(screen.getByRole("button", { name: "More" }));
-
-    fireEvent.click(screen.getByRole("button", { name: "Memory" }));
-
-    expect(handlers.onToggleMemoryPanel).toHaveBeenCalledTimes(1);
-  });
-
-  it("dispatches onOpenWorkflows", () => {
-    const handlers = renderTopBar();
     fireEvent.click(screen.getByRole("button", { name: "More" }));
 
     fireEvent.click(screen.getByRole("button", { name: "Workflows" }));
+    expect(onOpenWorkflows).toHaveBeenCalledTimes(1);
 
-    expect(handlers.onOpenWorkflows).toHaveBeenCalledTimes(1);
-  });
-
-  it("dispatches onOpenExtensions", () => {
-    const handlers = renderTopBar();
     fireEvent.click(screen.getByRole("button", { name: "More" }));
-
     fireEvent.click(screen.getByRole("button", { name: "Extensions" }));
-
-    expect(handlers.onOpenExtensions).toHaveBeenCalledTimes(1);
-  });
-
-  it("closes the More menu on an outside click", () => {
-    renderTopBar();
-    fireEvent.click(screen.getByRole("button", { name: "More" }));
-    expect(screen.getByRole("button", { name: "Landscape" })).toBeInTheDocument();
-
-    fireEvent.mouseDown(document.body);
-
-    expect(screen.queryByRole("button", { name: "Landscape" })).not.toBeInTheDocument();
-  });
-
-  it("has no Board/Grid toggle when the shell does not offer one", () => {
-    renderTopBar();
-    expect(screen.queryByRole("button", { name: "Board view" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Grid view" })).not.toBeInTheDocument();
-  });
-
-  it("marks the Board segment as the active one while the Board is open", () => {
-    const onSetBoardView = vi.fn();
-    renderTopBar({ boardViewOpen: true, onSetBoardView });
-
-    expect(screen.getByRole("button", { name: "Board view" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    expect(screen.getByRole("button", { name: "Grid view" })).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    );
-  });
-
-  it("marks the Grid segment as the active one while the Board is closed", () => {
-    const onSetBoardView = vi.fn();
-    renderTopBar({ boardViewOpen: false, onSetBoardView });
-
-    expect(screen.getByRole("button", { name: "Grid view" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-  });
-
-  it("asks for the grid when the Grid segment is clicked", () => {
-    const onSetBoardView = vi.fn();
-    renderTopBar({ boardViewOpen: true, onSetBoardView });
-
-    fireEvent.click(screen.getByRole("button", { name: "Grid view" }));
-
-    expect(onSetBoardView).toHaveBeenCalledWith(false);
-  });
-
-  it("asks for the board when the Board segment is clicked", () => {
-    const onSetBoardView = vi.fn();
-    renderTopBar({ boardViewOpen: false, onSetBoardView });
-
-    fireEvent.click(screen.getByRole("button", { name: "Board view" }));
-
-    expect(onSetBoardView).toHaveBeenCalledWith(true);
-  });
-
-  it("shows an aggregated dot on the More button when Memory has a health flag", () => {
-    useHealthStore.setState({
-      flags: [
-        {
-          key: "memory:maestro",
-          area: "memory",
-          scope: "maestro",
-          target: "maestro",
-          reason: "12 stale files",
-        },
-      ],
-    });
-    renderTopBar();
-
-    const moreButton = screen.getByRole("button", { name: "More" });
-    expect(moreButton.querySelector("span[aria-hidden]")).toBeInTheDocument();
-  });
-
-  it("shows the per-item health badge on the Memory row inside the menu", () => {
-    useHealthStore.setState({
-      flags: [
-        {
-          key: "memory:maestro",
-          area: "memory",
-          scope: "maestro",
-          target: "maestro",
-          reason: "12 stale files",
-        },
-      ],
-    });
-    renderTopBar();
-    fireEvent.click(screen.getByRole("button", { name: "More" }));
-
-    expect(screen.getByLabelText("1 health item need a look")).toBeInTheDocument();
+    expect(onOpenExtensions).toHaveBeenCalledTimes(1);
   });
 });

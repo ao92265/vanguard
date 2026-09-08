@@ -223,9 +223,9 @@ export function OrchestratorView({ onClose }: OrchestratorViewProps) {
     /* z-50: same overlay shell as Home/Factory/Landscape (eagle zoom is z-40). */
     <div className="absolute inset-0 z-50 flex flex-col bg-maestro-bg">
       <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-[34px] pb-4 pt-[30px]">
-        <span className="font-mono text-[13px] font-semibold uppercase tracking-[0.09em] text-maestro-muted">
+        <h1 className="font-mono text-[13px] font-semibold uppercase tracking-[0.09em] text-maestro-muted">
           Orchestrator
-        </span>
+        </h1>
         <span className="font-mono text-[12px] text-maestro-muted">
           {sessionId === null ? "not running" : "running"}
           {safeMode ? " · safe mode: nothing runs without your yes" : " · free run"}

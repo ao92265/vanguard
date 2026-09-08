@@ -330,8 +330,11 @@ export function ledgerTotals(groups: LedgerDayGroup[]): LedgerTotals {
     totals.handoffs += group.counts.handoff;
     for (const entry of group.entries) {
       /* Counted by identity, never by label: a record whose source named no
-         project is reported as unattributed rather than folded in as one. */
-      if (entry.projectKey === null) totals.unattributed += 1;
+         project is reported as unattributed rather than folded in as one.
+         Nullish, not `=== null`: the builder writes null, but an entry made
+         any other way can hold undefined, and an identity that is absent must
+         not be counted as a project because of which absent value it is. */
+      if (entry.projectKey == null) totals.unattributed += 1;
       else projects.add(entry.projectKey);
     }
   }

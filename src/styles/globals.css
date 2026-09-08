@@ -49,8 +49,8 @@
     --maestro-text: 232 232 236;
     --maestro-muted: 148 148 160;
     /* The design system's `--onAccent`: the ink for anything sitting ON the
-       accent fill. Defined for both themes so it is there when the accent
-       buttons are moved onto it; nothing reads it yet. */
+       accent fill. Every accent-filled control reads it through Tailwind's
+       `text-maestro-on-accent`, enforced by workbench-layout.test.ts. */
     --maestro-on-accent: 13 13 16;
     --maestro-accent-ink: 130 143 255;
 
@@ -81,22 +81,6 @@
     --maestro-orange: 176 109 5;
     --maestro-yellow: 138 107 6;
     --maestro-purple: 123 78 204;
-  }
-
-  /* ── Theme transition on chrome (scoped to direct children) ── */
-  .theme-transition {
-    transition:
-      background-color 200ms ease-out,
-      border-color 200ms ease-out,
-      color 200ms ease-out,
-      box-shadow 200ms ease-out;
-  }
-  .theme-transition > * {
-    transition:
-      background-color 200ms ease-out,
-      border-color 200ms ease-out,
-      color 200ms ease-out,
-      box-shadow 200ms ease-out;
   }
 
   html,
@@ -443,56 +427,6 @@
       display: none;
     }
   }
-
-  .workspace-toolbar {
-    container: toolbar / inline-size;
-  }
-
-  .workspace-actions > button,
-  .workspace-actions > div > button {
-    display: inline-flex;
-    min-height: 32px;
-    min-width: 32px;
-    flex-shrink: 0;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    border-radius: 6px;
-    font-size: 12px;
-    font-weight: 500;
-  }
-
-  .workspace-actions > button[aria-pressed="true"] {
-    background: rgb(var(--maestro-accent) / 0.12);
-    color: rgb(var(--maestro-accent));
-  }
-
-  .workspace-nav-label {
-    display: none;
-  }
-
-  @container toolbar (min-width: 850px) {
-    .workspace-nav-label {
-      display: inline;
-    }
-  }
-
-  .workspace-board-column {
-    padding: 0 12px;
-    border-right: 1px solid rgb(var(--maestro-border) / 0.55);
-  }
-
-  .workspace-board-column:last-child {
-    border-right: 0;
-  }
-
-  .workspace-board-column h2 {
-    letter-spacing: -0.01em;
-  }
-
-  .project-strip [role="tab"]:focus-visible {
-    outline-offset: -2px;
-  }
 }
 
 :where(button, a, input, select, textarea, [tabindex]):focus-visible {
@@ -768,16 +702,6 @@
   }
 }
 
-@keyframes glow-pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 8px rgb(var(--maestro-orange) / 0.2);
-  }
-  50% {
-    box-shadow: 0 0 18px rgb(var(--maestro-orange) / 0.4);
-  }
-}
-
 @keyframes starting-glow {
   0%,
   100% {
@@ -789,21 +713,6 @@
     box-shadow:
       0 0 20px rgb(var(--maestro-orange) / 0.6),
       0 0 40px rgb(var(--maestro-orange) / 0.3);
-  }
-}
-
-@keyframes pod-wake {
-  0% {
-    transform: scale(0.95);
-    opacity: 0.7;
-  }
-  50% {
-    transform: scale(1.02);
-    opacity: 0.9;
-  }
-  100% {
-    transform: scale(1);
-    opacity: 1;
   }
 }
 
@@ -841,15 +750,6 @@
   animation: thinking-dot 1.2s ease-in-out infinite;
 }
 
-.animate-glow {
-  animation: glow-pulse 2s ease-in-out infinite;
-  border-color: rgb(var(--maestro-orange));
-}
-
-.animate-pod-wake {
-  animation: pod-wake 600ms ease-out forwards;
-}
-
 /* Parked-shelf chip demanding attention (agent finished its turn / needs
    input while parked). Border stays red even where animations are
    disabled (Linux, reduced motion) so the signal survives. */
@@ -871,8 +771,6 @@
 @media (prefers-reduced-motion: reduce) {
   .animate-breathe,
   .animate-edge-dash,
-  .animate-glow,
-  .animate-pod-wake,
   .animate-thinking-dot,
   .parked-chip-attention,
   .terminal-cell-starting {
@@ -910,7 +808,6 @@
 /* Disable breathe/glow animations */
 .platform-linux .animate-breathe,
 .platform-linux .animate-edge-dash,
-.platform-linux .animate-glow,
 .platform-linux .animate-thinking-dot,
 .platform-linux .parked-chip-attention {
   animation: none;
@@ -952,58 +849,6 @@
   flex-direction: column;
   border-radius: 8px;
   margin-right: 0;
-}
-
-.inbox-screen {
-  container-type: inline-size;
-}
-
-.inbox-workspace {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.9fr);
-  align-items: start;
-}
-
-.inbox-detail {
-  position: sticky;
-  top: 0;
-  max-height: 100%;
-  overflow-y: auto;
-}
-
-.inbox-detail .inbox-actions > button:first-child {
-  flex-basis: 100%;
-  align-items: flex-start;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.inbox-detail .inbox-actions .truncate {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-@container (max-width: 760px) {
-  .inbox-workspace {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .inbox-queue,
-  .inbox-detail {
-    width: 100%;
-  }
-
-  .inbox-detail {
-    position: static;
-    max-height: none;
-    border-left: 0;
-    border-bottom: 1px solid rgb(var(--maestro-border));
-  }
-
-  .inbox-detail[data-selected="true"] {
-    order: -1;
-  }
 }
 
 .platform-linux .pod-grid-card {

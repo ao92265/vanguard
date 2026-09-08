@@ -89,6 +89,15 @@ afterEach(() => {
   for (const node of document.querySelectorAll(".terminal-cell")) node.remove();
 });
 
+it("titles the screen with the name the rail navigates by, as a real heading", () => {
+  // Rail label, screen title and close control were "Inbox", "Blocked on you"
+  // and "Close home". Every other destination's title is its rail label, and
+  // a screen reader landing here had no heading to jump to at all.
+  render(<HomeView onClose={() => {}} onNavigate={() => {}} />);
+  expect(screen.getByRole("heading", { level: 1, name: "Inbox" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Close inbox" })).toBeVisible();
+});
+
 it("focuses the first queued item and leaves the rest below it", () => {
   render(<HomeView onClose={() => {}} onNavigate={() => {}} />);
   const card = focusCard();

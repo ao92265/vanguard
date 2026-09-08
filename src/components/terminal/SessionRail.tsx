@@ -50,7 +50,7 @@ export function SessionRail({
           <button
             type="button"
             onClick={onNewTerminal}
-            className="rounded-md bg-maestro-accent px-2.5 py-1 text-[11.5px] font-medium text-maestro-onAccent"
+            className="rounded-md bg-maestro-accent px-2.5 py-1 text-[11.5px] font-medium text-maestro-on-accent"
           >
             New terminal <span className="font-mono opacity-70">⌘T</span>
           </button>

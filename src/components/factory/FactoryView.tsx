@@ -497,9 +497,9 @@ export function FactoryView({ onClose }: FactoryViewProps) {
     /* z-50: same overlay shell as Home/Landscape (eagle zoom is z-40). */
     <div className="absolute inset-0 z-50 flex flex-col bg-maestro-bg">
       <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-[30px] pb-[18px] pt-[26px]">
-        <span className="font-mono text-[13px] font-semibold uppercase tracking-[0.09em] text-maestro-muted">
+        <h1 className="font-mono text-[13px] font-semibold uppercase tracking-[0.09em] text-maestro-muted">
           Factory
-        </span>
+        </h1>
         {gatedRuns.length > 0 && (
           <span className="font-mono text-[12px] text-maestro-accent">
             {gatedRuns.length} waiting on you

@@ -2,7 +2,6 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import { ProjectTabs } from "../ProjectTabs";
 
-vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({}) }));
 vi.mock("@/hooks/useProjectStatus", () => ({
   useProjectStatus: () => ({ status: "idle", sessionCount: 0 }),
   STATUS_COLORS: { idle: "bg-maestro-muted" },
@@ -14,7 +13,6 @@ it("selects and reorders vertical projects with vertical arrow keys", () => {
   const close = vi.fn();
   render(
     <ProjectTabs
-      vertical
       tabs={[
         { id: "a", name: "API", active: true },
         { id: "b", name: "Web", active: false },
@@ -23,8 +21,6 @@ it("selects and reorders vertical projects with vertical arrow keys", () => {
       onMoveTab={move}
       onCloseTab={close}
       onNewTab={() => {}}
-      onToggleSidebar={() => {}}
-      sidebarOpen
       onReorderTab={() => {}}
     />,
   );

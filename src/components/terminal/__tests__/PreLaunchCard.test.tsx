@@ -383,6 +383,36 @@ describe("PreLaunchCard resolves-to panel", () => {
     expect(panel).toHaveTextContent("3 skills");
   });
 
+  it("names the polled current branch when the branch poll has returned one", () => {
+    // `branches` is what `list_branches` gave TerminalGrid (TerminalGrid.tsx
+    // :774), so `main` here is a real branch name off a real repo, and it is
+    // the same one the picker button above shows with its `current` badge.
+    render(<PreLaunchCard {...baseProps} slot={makeSlot()} />);
+    expect(summary()).toHaveTextContent("main");
+  });
+
+  it("says the branch is not settled yet rather than printing the picker's placeholder", () => {
+    // A freshly opened setup card: TerminalGrid holds `branches` at `[]`
+    // (TerminalGrid.tsx:498) until the fetch resolves, and the slot carries no
+    // explicit branch. "Current" is the branch picker's own label for that
+    // state; printed under `branch` in a panel whose job is to state what the
+    // launch will do, it reads as a branch named Current. The launch really
+    // does leave it open here: it passes `slot.branch ?? null` to
+    // `prepareSessionWorktree` and takes the branch back off the result
+    // (TerminalGrid.tsx:1007, :1013).
+    render(
+      <PreLaunchCard
+        {...baseProps}
+        branches={[]}
+        isLoadingBranches={true}
+        slot={makeSlot({ branch: null })}
+      />,
+    );
+    const panel = summary();
+    expect(panel).not.toHaveTextContent("Current");
+    expect(panel).toHaveTextContent("resolved at launch, from this repository's checkout");
+  });
+
   it("states image staging and retention as this backend performs them", () => {
     render(<PreLaunchCard {...baseProps} slot={makeSlot()} />);
     const panel = summary();

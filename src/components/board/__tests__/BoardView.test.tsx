@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /* The workspace and watchdog stores persist through the Tauri plugin-store,
@@ -562,6 +562,22 @@ describe("BoardView", () => {
 
     expect(screen.getByText("FACTORY STALE")).toBeInTheDocument();
   });
+  it("makes each screen title a heading, at the level its nesting gives it", () => {
+    // The Board and the Ledger are one overlay with one header, so the header
+    // title is the page's h1 on both faces. The ledger section sits under that
+    // header with its own title, so it is an h2 rather than a second h1.
+    useSessionStore.setState({ sessions: [session(1, "Working")] });
+    useWorkspaceStore.setState({ tabs: [tab()] });
+
+    renderBoard();
+    expect(screen.getByRole("heading", { level: 1, name: "Board" })).toBeVisible();
+
+    cleanup();
+    renderBoard({ mode: "ledger" });
+    expect(screen.getByRole("heading", { level: 1, name: "Ledger" })).toBeVisible();
+    expect(screen.getByRole("heading", { level: 2, name: "Work ledger" })).toBeVisible();
+  });
+
   it("shows the board's stages as lanes, and the ledger only in ledger mode", () => {
     useSessionStore.setState({ sessions: [session(1, "Working")] });
     useWorkspaceStore.setState({ tabs: [tab()] });
