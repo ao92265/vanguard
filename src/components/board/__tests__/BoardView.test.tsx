@@ -644,8 +644,48 @@ describe("BoardView", () => {
     const ledger = within(screen.getByRole("region", { name: "Work ledger" }));
     expect(ledger.getByRole("figure", { name: "1 merged" })).toBeInTheDocument();
     expect(ledger.getByRole("figure", { name: "1 runs" })).toBeInTheDocument();
-    expect(ledger.getByRole("figure", { name: "1 sessions" })).toBeInTheDocument();
+    expect(ledger.getByRole("figure", { name: "1 handoffs" })).toBeInTheDocument();
     expect(ledger.queryByText(/\$/)).not.toBeInTheDocument();
     expect(ledger.queryByText(/remote/i)).not.toBeInTheDocument();
+  });
+
+  it("calls the ledger's handoff records handoffs, never sessions", () => {
+    /* The fleet strip under the ledger counts real live sessions. One screen
+       must not use the same word for two different populations. */
+    useBandStore.setState({ handoffs: [handoff()] });
+
+    renderBoard({ mode: "ledger" });
+
+    const ledger = within(screen.getByRole("region", { name: "Work ledger" }));
+    expect(ledger.getByText("HANDOFF")).toBeInTheDocument();
+    expect(ledger.queryByText(/session/i)).not.toBeInTheDocument();
+  });
+
+  it("does not count a run with no repo as a project of its own", () => {
+    /* "Factory run" is the label for a run ACT never attributed to a repo.
+       Counting the placeholder as a project inflates both the tile and the
+       header line. */
+    useBandStore.setState({ repoPrs: [mergedRepo()] });
+    useActStore.setState({ runs: [{ ...run("build"), repoUrl: null }] });
+
+    renderBoard({ mode: "ledger" });
+
+    const ledger = within(screen.getByRole("region", { name: "Work ledger" }));
+    expect(ledger.getByRole("figure", { name: "1 projects" })).toBeInTheDocument();
+    expect(screen.getByText("2 records across 1 project")).toBeInTheDocument();
+    expect(ledger.getByText(/1 record names no project/)).toBeInTheDocument();
+  });
+
+  it("counts a repo once when a pull request and a run spell it differently", () => {
+    useBandStore.setState({ repoPrs: [mergedRepo()], handoffs: [] });
+    useActStore.setState({
+      runs: [{ ...run("build"), repoUrl: "https://example.test/acme/proj-a.git" }],
+    });
+
+    renderBoard({ mode: "ledger" });
+
+    const ledger = within(screen.getByRole("region", { name: "Work ledger" }));
+    expect(ledger.getByRole("figure", { name: "1 projects" })).toBeInTheDocument();
+    expect(ledger.queryByText(/names no project/)).not.toBeInTheDocument();
   });
 });

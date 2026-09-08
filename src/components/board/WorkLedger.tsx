@@ -30,8 +30,10 @@ const KIND_STYLE: Record<LedgerEntryKind, { label: string; badge: string; tick: 
     tick: "bg-maestro-green",
   },
   run: { label: "RUN", badge: "bg-maestro-blue/15 text-maestro-blue", tick: "bg-maestro-blue" },
-  session: {
-    label: "SESSION",
+  /* HANDOFF, not SESSION: the fleet strip below this view counts real live
+     sessions, and these are the files a finished one left on disk. */
+  handoff: {
+    label: "HANDOFF",
     badge: "bg-maestro-muted/15 text-maestro-muted",
     tick: "bg-maestro-muted",
   },
@@ -190,9 +192,17 @@ export function WorkLedger({
       <div className="flex items-baseline gap-[22px] border-b border-maestro-border pb-[18px] pt-[14px]">
         <Metric value={totals.merged} label="merged" />
         <Metric value={totals.runs} label="runs" />
-        <Metric value={totals.sessions} label="sessions" />
+        <Metric value={totals.handoffs} label="handoffs" />
         <Metric value={totals.projects} label="projects" />
       </div>
+
+      {totals.unattributed > 0 && (
+        <p className="pt-2 font-mono text-[11px] text-maestro-muted">
+          {totals.unattributed} record{totals.unattributed === 1 ? "" : "s"} name
+          {totals.unattributed === 1 ? "s" : ""} no project, so the projects count leaves{" "}
+          {totals.unattributed === 1 ? "it" : "them"} out.
+        </p>
+      )}
 
       {groups.length === 0 ? (
         <div className="flex flex-1 flex-col items-start justify-center py-16">
@@ -204,8 +214,8 @@ export function WorkLedger({
           </h2>
           <p className="mt-3 max-w-md text-sm leading-relaxed text-maestro-muted">
             The ledger reads three sources that carry a real instant: pull requests that have
-            merged, Factory runs, and the handoff files sessions leave on disk. None of them has
-            anything yet.
+            merged, Factory runs, and the handoff files left on disk when a session stops. None of
+            them has anything yet.
           </p>
         </div>
       ) : (

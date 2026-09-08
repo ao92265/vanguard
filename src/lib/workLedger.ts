@@ -18,11 +18,19 @@ import type { PullRequestInfo } from "@/stores/useGitHubStore";
  * worse than one that admits it does not know when it happened.
  */
 
-/** The three record kinds the app's own sources can honestly produce. */
-export type LedgerEntryKind = "merged" | "run" | "session";
+/**
+ * The three record kinds the app's own sources can honestly produce.
+ *
+ * `handoff`, not `session`: these are the handoff files a session leaves on
+ * disk, and the Board's fleet strip on the same screen counts real live
+ * sessions out of `useSessionStore`. One screen must not use one word for two
+ * different populations, and the strip's meaning is the one users already
+ * have.
+ */
+export type LedgerEntryKind = "merged" | "run" | "handoff";
 
 /** Rail and legend order, and the order counts are read in. */
-export const LEDGER_KIND_ORDER: LedgerEntryKind[] = ["merged", "run", "session"];
+export const LEDGER_KIND_ORDER: LedgerEntryKind[] = ["merged", "run", "handoff"];
 
 /** Day key for every entry whose source carried no readable instant. */
 export const UNDATED_DAY_KEY = "undated";
@@ -36,6 +44,13 @@ export interface LedgerEntry {
    * Anything unparseable lands in the undated group rather than a guess.
    */
   timestamp: string | null;
+  /**
+   * Canonical identity of the entry's project, lowercased, or null when the
+   * source never named one. Kept apart from {@link LedgerEntry.project}
+   * because that field may be a placeholder, and a placeholder counted as a
+   * distinct project inflates every total read off it.
+   */
+  projectKey: string | null;
   /** Project the entry belongs to, in the source's own words. */
   project: string;
   /** One line: what happened. */
@@ -76,13 +91,15 @@ export interface LedgerSources {
 export interface LedgerTotals {
   merged: number;
   runs: number;
-  sessions: number;
+  handoffs: number;
   /** Distinct projects named across every entry, dated or not. */
   projects: number;
   /** Days carrying at least one dated entry. */
   days: number;
   /** Entries whose source carried no readable instant. */
   undated: number;
+  /** Entries whose source named no project, so `projects` cannot include them. */
+  unattributed: number;
 }
 
 /**
@@ -110,7 +127,7 @@ function dayLabel(date: Date, now: Date): string {
 }
 
 function emptyCounts(): Record<LedgerEntryKind, number> {
-  return { merged: 0, run: 0, session: 0 };
+  return { merged: 0, run: 0, handoff: 0 };
 }
 
 interface Bucket {
@@ -174,6 +191,38 @@ export function groupLedgerEntries(
     });
 }
 
+/**
+ * Canonical project identity from a name a source spelled out.
+ *
+ * Lowercased and trimmed, so the PR poll's `projectName`, a handoff's `repo`
+ * and the tail of a run's `repoUrl` collapse to one key for one repo instead
+ * of being counted as three projects.
+ */
+function projectKeyFromName(name: string | null | undefined): string | null {
+  const key = (name ?? "").trim().toLowerCase();
+  return key === "" ? null : key;
+}
+
+/**
+ * The repo's own name out of an ACT run's repo URL, or null when the URL
+ * names no repo. Handles a trailing slash and a `.git` suffix; anything else
+ * unparseable is an absent identity, never a guess.
+ */
+function projectKeyFromRepoUrl(url: string | null): string | null {
+  const trimmed = (url ?? "").trim().replace(/\/+$/, "");
+  if (trimmed === "") return null;
+  /* Drop the scheme so the host is always the first segment, then take the
+     last one only when there is a path beyond it: a bare "https://host" names
+     a server, not a repo, and reading the host as a project name would be the
+     same fabrication this whole helper exists to avoid. */
+  const segments = trimmed
+    .replace(/^[a-zA-Z][\w+.-]*:\/\//, "")
+    .split("/")
+    .filter(Boolean);
+  if (segments.length < 2) return null;
+  return projectKeyFromName(segments[segments.length - 1].replace(/\.git$/, ""));
+}
+
 /** The branch and diff size behind a merged PR, when the poll carried them. */
 function mergedDetail(pr: PullRequestInfo): string | null {
   const parts: string[] = [];
@@ -207,6 +256,7 @@ export function buildLedgerEntries({ mergedPrs, runs, handoffs }: LedgerSources)
       id: `merged:${repoPath}#${pr.number}`,
       kind: "merged",
       timestamp: pr.mergedAt,
+      projectKey: projectKeyFromName(projectName),
       project: projectName,
       title: `#${pr.number} ${pr.title}`,
       detail: mergedDetail(pr),
@@ -222,7 +272,10 @@ export function buildLedgerEntries({ mergedPrs, runs, handoffs }: LedgerSources)
          Same precedence the Board's run cards use for their age. */
       timestamp: run.updatedAt ?? run.createdAt,
       /* ACT reports a repo URL, not a project name; `board.ts` makes the same
-         substitution rather than inventing one. */
+         substitution rather than inventing one. "Factory run" is a label for a
+         run nobody attributed to a repo, so it carries no identity with it and
+         nothing downstream can mistake it for a project. */
+      projectKey: projectKeyFromRepoUrl(run.repoUrl),
       project: run.repoUrl ?? "Factory run",
       title: run.title,
       detail: run.stage ? `${run.status} · ${run.stage}` : run.status,
@@ -232,9 +285,10 @@ export function buildLedgerEntries({ mergedPrs, runs, handoffs }: LedgerSources)
 
   for (const handoff of handoffs) {
     entries.push({
-      id: `session:${handoff.path}:${handoff.slug}`,
-      kind: "session",
+      id: `handoff:${handoff.path}:${handoff.slug}`,
+      kind: "handoff",
       timestamp: handoff.lastActive,
+      projectKey: projectKeyFromName(handoff.repo),
       project: handoff.repo,
       title: handoff.lastAction,
       detail: handoffDetail(handoff),
@@ -251,15 +305,20 @@ export function buildLedgerEntries({ mergedPrs, runs, handoffs }: LedgerSources)
  * Deliberately not here: spend, remote share, and anything image-shaped. No
  * source in this app records a per-entry cost or the host a session ran on,
  * so a total for either would be a number with nothing behind it.
+ *
+ * `projects` counts canonical identities, so one repo reached through a merged
+ * pull request, an ACT run and a handoff is one project, and a record that
+ * named no project at all lands in `unattributed` instead of inflating it.
  */
 export function ledgerTotals(groups: LedgerDayGroup[]): LedgerTotals {
   const totals: LedgerTotals = {
     merged: 0,
     runs: 0,
-    sessions: 0,
+    handoffs: 0,
     projects: 0,
     days: 0,
     undated: 0,
+    unattributed: 0,
   };
   const projects = new Set<string>();
 
@@ -268,8 +327,13 @@ export function ledgerTotals(groups: LedgerDayGroup[]): LedgerTotals {
     else totals.days += 1;
     totals.merged += group.counts.merged;
     totals.runs += group.counts.run;
-    totals.sessions += group.counts.session;
-    for (const entry of group.entries) projects.add(entry.project);
+    totals.handoffs += group.counts.handoff;
+    for (const entry of group.entries) {
+      /* Counted by identity, never by label: a record whose source named no
+         project is reported as unattributed rather than folded in as one. */
+      if (entry.projectKey === null) totals.unattributed += 1;
+      else projects.add(entry.projectKey);
+    }
   }
 
   totals.projects = projects.size;

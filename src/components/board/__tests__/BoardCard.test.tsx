@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { BoardCard, boardCardKey, cardAction } from "@/components/board/BoardCard";
+import { BoardCard, boardCardKey, cardAction, cardEdgeClass } from "@/components/board/BoardCard";
 import type { ActRun } from "@/lib/act";
 import type { HandoffInfo } from "@/lib/bands";
 import type { BoardCardItem } from "@/lib/board";
@@ -118,6 +118,67 @@ describe("cardAction", () => {
     expect(cardAction(handoffCard()).enabled).toBe(true);
     expect(cardAction(runCard("build")).enabled).toBe(true);
     expect(cardAction(prCard("Merged", null, false)).enabled).toBe(true);
+  });
+});
+
+describe("cardEdgeClass", () => {
+  it("gives every session status its own edge colour", () => {
+    const statuses: BackendSessionStatus[] = [
+      "Starting",
+      "Idle",
+      "Working",
+      "NeedsInput",
+      "Done",
+      "Error",
+      "Timeout",
+    ];
+    const edges = Object.fromEntries(
+      statuses.map((status) => [
+        status,
+        cardEdgeClass(sessionCard(status, "t1", { needsYou: false })),
+      ]),
+    );
+
+    expect(edges).toEqual({
+      Starting: "border-l-maestro-orange",
+      Idle: "border-l-maestro-muted",
+      Working: "border-l-maestro-blue",
+      NeedsInput: "border-l-maestro-accent",
+      Done: "border-l-maestro-green",
+      Error: "border-l-maestro-red",
+      Timeout: "border-l-maestro-red",
+    });
+  });
+
+  it("lets needs-you outrank the kind's own colour", () => {
+    expect(cardEdgeClass(sessionCard("Done", "t1", { needsYou: true }))).toBe(
+      "border-l-maestro-accent",
+    );
+    expect(cardEdgeClass(prCard("Merged", "2026-08-19T09:00:00Z", true))).toBe(
+      "border-l-maestro-accent",
+    );
+  });
+
+  it("colours the other kinds by what they are", () => {
+    expect(cardEdgeClass(handoffCard())).toBe("border-l-maestro-yellow");
+    expect(cardEdgeClass(runCard("build"))).toBe("border-l-maestro-blue");
+    expect(cardEdgeClass(prCard("Open", null, false))).toBe("border-l-maestro-blue");
+    expect(cardEdgeClass(prCard("Merged", "2026-08-19T09:00:00Z", false))).toBe(
+      "border-l-maestro-purple",
+    );
+    expect(cardEdgeClass(externalCard())).toBe("border-l-maestro-blue");
+  });
+
+  it("puts the edge on the card itself, not only in the map", () => {
+    render(
+      <BoardCard
+        item={prCard("Merged", "2026-08-19T09:00:00Z", false)}
+        selected={false}
+        onActivate={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button").className).toContain("border-l-maestro-purple");
   });
 });
 

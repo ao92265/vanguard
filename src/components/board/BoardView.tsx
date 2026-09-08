@@ -223,6 +223,14 @@ export function BoardView({
     [repoPrs, runs, handoffs],
   );
   const ledgerCounts = useMemo(() => ledgerTotals(ledgerGroups), [ledgerGroups]);
+  /* The projects half is dropped rather than printed as zero when no record
+     named one: "across 0 projects" reads as a finding about the projects,
+     when it is a fact about the records. */
+  const ledgerRecords = ledgerCounts.merged + ledgerCounts.runs + ledgerCounts.handoffs;
+  const ledgerSummary =
+    ledgerCounts.projects === 0
+      ? `${ledgerRecords} record${ledgerRecords === 1 ? "" : "s"}`
+      : `${ledgerRecords} record${ledgerRecords === 1 ? "" : "s"} across ${ledgerCounts.projects} project${ledgerCounts.projects === 1 ? "" : "s"}`;
 
   /* Reading order for j/k: column by column, left to right, top to bottom.
      Only cards Enter can act on: parking the selection on a card that
@@ -401,14 +409,20 @@ export function BoardView({
        Landscape/Workflows overlays (z-50), which therefore keep stacking on
        top of the Board with no change to the overlay-exclusivity rules. */
     <div className="absolute inset-0 z-[45] flex flex-col bg-maestro-bg">
-      <div className="flex shrink-0 flex-wrap items-baseline gap-3 px-[30px] pb-[18px] pt-[26px]">
+      {/* The reference gives the two faces different gutters (30px on Board,
+          34px on Ledger) because there they are separate screens with their
+          own headers. One header serves both here, so it follows the face it
+          is titling rather than leaving the title 4px off its own body. */}
+      <div
+        className={`flex shrink-0 flex-wrap items-baseline gap-3 pb-[18px] pt-[26px] ${
+          mode === "ledger" ? "px-[34px]" : "px-[30px]"
+        }`}
+      >
         <h1 className="font-mono text-[13px] font-semibold uppercase tracking-[0.09em] text-maestro-muted">
           {mode === "ledger" ? "Ledger" : "Board"}
         </h1>
         <p className="font-mono text-[12px] text-maestro-muted">
-          {mode === "ledger"
-            ? `${ledgerCounts.merged + ledgerCounts.runs + ledgerCounts.sessions} records across ${ledgerCounts.projects} project${ledgerCounts.projects === 1 ? "" : "s"}`
-            : `${total} piece${total === 1 ? "" : "s"} of work`}
+          {mode === "ledger" ? ledgerSummary : `${total} piece${total === 1 ? "" : "s"} of work`}
         </p>
         {actError && (
           <span

@@ -23,7 +23,7 @@ function at(year: number, month: number, day: number, hour: number, minute = 0):
 
 function entry(over: Partial<LedgerEntry> & { id: string }): LedgerEntry {
   return {
-    kind: "session",
+    kind: "handoff",
     timestamp: at(2026, 9, 8, 10),
     project: "proj-a",
     title: "did a thing",
@@ -38,7 +38,7 @@ const NOW = new Date(2026, 8, 8, 18, 0, 0, 0);
 describe("groupLedgerEntries", () => {
   it("puts an entry under its own day, keyed by the local date", () => {
     const groups = groupLedgerEntries(
-      [entry({ id: "one", timestamp: at(2026, 9, 8, 10), kind: "session", title: "Checks" })],
+      [entry({ id: "one", timestamp: at(2026, 9, 8, 10), kind: "handoff", title: "Checks" })],
       NOW,
     );
 
@@ -107,13 +107,13 @@ describe("groupLedgerEntries", () => {
         entry({ id: "m1", kind: "merged", timestamp: at(2026, 9, 8, 8) }),
         entry({ id: "m2", kind: "merged", timestamp: at(2026, 9, 8, 9) }),
         entry({ id: "r1", kind: "run", timestamp: at(2026, 9, 8, 10) }),
-        entry({ id: "s1", kind: "session", timestamp: at(2026, 9, 7, 10) }),
+        entry({ id: "s1", kind: "handoff", timestamp: at(2026, 9, 7, 10) }),
       ],
       NOW,
     );
 
-    expect(groups[0].counts).toEqual({ merged: 2, run: 1, session: 0 });
-    expect(groups[1].counts).toEqual({ merged: 0, run: 0, session: 1 });
+    expect(groups[0].counts).toEqual({ merged: 2, run: 1, handoff: 0 });
+    expect(groups[1].counts).toEqual({ merged: 0, run: 0, handoff: 1 });
   });
 
   it("returns no groups at all for an empty ledger", () => {
@@ -175,7 +175,7 @@ describe("buildLedgerEntries", () => {
       handoffs: [handoff()],
     });
 
-    expect(entries.map((e) => e.kind)).toEqual(["merged", "run", "session"]);
+    expect(entries.map((e) => e.kind)).toEqual(["merged", "run", "handoff"]);
     expect(entries.map((e) => e.timestamp)).toEqual([
       at(2026, 9, 8, 14),
       at(2026, 9, 7, 11),
@@ -185,7 +185,12 @@ describe("buildLedgerEntries", () => {
     expect(entries[0].title).toContain("Widen the importer");
     expect(entries[0].href).toBe("https://example.test/pr/12");
     expect(entries[1].project).toBe("Factory run");
+    /* A run with no repo URL has no project to name, so the placeholder label
+       carries no identity with it and nothing downstream can count it. */
+    expect(entries[1].projectKey).toBeNull();
+    expect(entries[0].projectKey).toBe("proj-a");
     expect(entries[2].project).toBe("proj-b");
+    expect(entries[2].projectKey).toBe("proj-b");
     expect(entries[2].title).toBe("left the migration half applied");
   });
 
@@ -219,6 +224,26 @@ describe("buildLedgerEntries", () => {
     expect(entries[0].detail).toBeNull();
     expect(entries[1].detail).toBeNull();
   });
+
+  it("resolves one repo to one identity however the three sources spell it", () => {
+    const entries = buildLedgerEntries({
+      mergedPrs: [{ repoPath: "/tmp/proj-a", projectName: "proj-a", pr: pr() }],
+      runs: [run({ repoUrl: "https://example.test/acme/Proj-A.git" })],
+      handoffs: [handoff({ repo: "proj-a" })],
+    });
+
+    expect(entries.map((e) => e.projectKey)).toEqual(["proj-a", "proj-a", "proj-a"]);
+  });
+
+  it("gives a run whose repo URL names nothing no identity at all", () => {
+    const entries = buildLedgerEntries({
+      mergedPrs: [],
+      runs: [run({ repoUrl: "   " }), run({ id: "slashes", repoUrl: "https://example.test/" })],
+      handoffs: [],
+    });
+
+    expect(entries.map((e) => e.projectKey)).toEqual([null, null]);
+  });
 });
 
 describe("ledgerTotals", () => {
@@ -235,13 +260,17 @@ describe("ledgerTotals", () => {
       NOW,
     );
 
+    /* Two real projects, proj-a and proj-b. The two runs carry no repo URL,
+       so "Factory run" is a label with no project behind it and must not be
+       counted as a third. */
     expect(ledgerTotals(groups)).toEqual({
       merged: 2,
       runs: 2,
-      sessions: 1,
-      projects: 3,
+      handoffs: 1,
+      projects: 2,
       days: 3,
       undated: 1,
+      unattributed: 2,
     });
   });
 
@@ -249,10 +278,25 @@ describe("ledgerTotals", () => {
     expect(ledgerTotals([])).toEqual({
       merged: 0,
       runs: 0,
-      sessions: 0,
+      handoffs: 0,
       projects: 0,
       days: 0,
       undated: 0,
+      unattributed: 0,
     });
+  });
+  it("counts distinct repos once even when the three sources spell them apart", () => {
+    const groups = groupLedgerEntries(
+      buildLedgerEntries({
+        mergedPrs: [{ repoPath: "/tmp/proj-a", projectName: "proj-a", pr: pr() }],
+        runs: [run({ repoUrl: "https://example.test/acme/proj-a" })],
+        handoffs: [handoff({ repo: "proj-a" })],
+      }),
+      NOW,
+    );
+
+    const totals = ledgerTotals(groups);
+    expect(totals.projects).toBe(1);
+    expect(totals.unattributed).toBe(0);
   });
 });
