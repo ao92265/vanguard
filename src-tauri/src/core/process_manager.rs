@@ -130,6 +130,7 @@ struct PtySession {
 }
 
 struct Inner {
+    attachments: Arc<super::session_attachments::SessionAttachmentService>,
     sessions: DashMap<u32, PtySession>,
     next_id: AtomicU32,
     /// Tracks last spawn time on Windows to pace rapid consecutive spawns
@@ -231,11 +232,18 @@ impl Default for ProcessManager {
 }
 
 impl ProcessManager {
+    pub fn attachments(&self) -> &Arc<super::session_attachments::SessionAttachmentService> {
+        &self.inner.attachments
+    }
+
     /// Creates a new manager with no active sessions.
     /// Session IDs start at 1 and increment atomically.
     pub fn new() -> Self {
         Self {
             inner: Arc::new(Inner {
+                attachments: Arc::new(
+                    super::session_attachments::SessionAttachmentService::default(),
+                ),
                 sessions: DashMap::new(),
                 next_id: AtomicU32::new(1),
                 #[cfg(windows)]
@@ -627,6 +635,10 @@ impl ProcessManager {
             .1;
 
         let pid = session.child_pid;
+        let attachments = self.inner.attachments.clone();
+        tokio::spawn(async move {
+            attachments.close(session_id).await;
+        });
 
         // Take the child handle out of the session so the process can be
         // REAPED, not just signaled. `libc::kill(pid, 0)` succeeds on a zombie

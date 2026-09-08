@@ -23,7 +23,7 @@ export async function spawnShell(cwd?: string, env?: Record<string, string>): Pr
 }
 
 /**
- * Saves pasted image data to a temporary file. Returns the absolute file path.
+ * Uploads an image to the session's execution host and pastes its path without submitting.
  *
  * The bytes are passed as the IPC *message body*, not as a field of an args
  * object. Tauri only takes its raw `application/octet-stream` branch when the
@@ -31,8 +31,14 @@ export async function spawnShell(cwd?: string, env?: Record<string, string>): Pr
  * `JSON.stringify`'d, which turns each image byte into ~4 characters of decimal
  * text on the main thread. The media type rides along as a request header.
  */
-export async function savePastedImage(data: Uint8Array, mediaType: string): Promise<string> {
-  return invoke<string>("save_pasted_image", data, { headers: { "media-type": mediaType } });
+export async function savePastedImage(
+  data: Uint8Array,
+  mediaType: string,
+  sessionId: number,
+): Promise<void> {
+  return invoke<void>("save_pasted_image", data, {
+    headers: { "media-type": mediaType, "session-id": String(sessionId) },
+  });
 }
 
 /**

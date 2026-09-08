@@ -65,3 +65,4 @@ pub use transcript_watcher::TranscriptWatcher;
 
 #[cfg(feature = "vte-backend")]
 pub use vte_backend::VteBackend;
+pub mod session_attachments;

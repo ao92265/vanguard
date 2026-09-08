@@ -1153,6 +1153,8 @@ pub fn run() {
             commands::terminal::check_cli_available,
             commands::terminal::get_backend_info,
             commands::terminal::save_pasted_image,
+            commands::terminal::set_image_target,
+            commands::terminal::get_image_target,
             // Git commands
             commands::git::git_branches,
             commands::git::git_current_branch,

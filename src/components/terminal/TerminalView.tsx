@@ -34,6 +34,7 @@ import { useActivityStore } from "@/stores/useActivityStore";
 import { type AiMode, type BackendSessionStatus, useSessionStore } from "@/stores/useSessionStore";
 import { DEFAULT_SCROLLBACK, useTerminalSettingsStore } from "@/stores/useTerminalSettingsStore";
 import type { ClaudeEvent } from "@/types/claude-events";
+import { ImageDestination } from "./ImageDestination";
 import { QuickActionPills } from "./QuickActionPills";
 import { SamuraiHandoffBanner } from "./SamuraiHandoffBanner";
 import { type AIProvider, type SessionStatus, TerminalHeader } from "./TerminalHeader";
@@ -248,6 +249,7 @@ export const TerminalView = memo(function TerminalView({
   // Detect if the project path itself is a git worktree (not the main working tree).
   // This handles the case where the user opens a worktree directory as their project.
   const [isProjectWorktree, setIsProjectWorktree] = useState(false);
+  const [imageNotice, setImageNotice] = useState("");
   useEffect(() => {
     if (hasSessionWorktree || !projectPath) return;
     isGitWorktree(projectPath)
@@ -624,22 +626,28 @@ export const TerminalView = memo(function TerminalView({
         if (!blob) return;
 
         const mediaType = imageItem.type;
-        const MAX_IMAGE_SIZE = 50 * 1024 * 1024; // 50 MB
+        const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+        if (blob.size > MAX_IMAGE_SIZE) {
+          setImageNotice("Image exceeds 10 MiB.");
+          return;
+        }
+        setImageNotice("Uploading image…");
         // Save image async, then write the path to stdin
         blob
           .arrayBuffer()
           .then(async (arrayBuffer) => {
             if (arrayBuffer.byteLength > MAX_IMAGE_SIZE) {
-              console.error("[TerminalView] Image too large to paste");
+              setImageNotice("Image exceeds 10 MiB.");
               return;
             }
             // Hand the view straight to the IPC layer — building a JS array with
             // one element per image byte first is what made large pastes freeze.
-            const filePath = await savePastedImage(new Uint8Array(arrayBuffer), mediaType);
-            await writeStdin(sessionId, filePath);
+            await savePastedImage(new Uint8Array(arrayBuffer), mediaType, sessionId);
+            setImageNotice("");
           })
           .catch((err) => {
             console.error("[TerminalView] Failed to paste image:", err);
+            setImageNotice(`Image not pasted: ${String(err)}`);
           });
       };
       container.addEventListener("paste", pasteHandler, { capture: true });
@@ -969,6 +977,10 @@ export const TerminalView = memo(function TerminalView({
       style={projectColor ? { borderColor: projectColor } : undefined}
       onClick={onFocus}
     >
+      <ImageDestination key={sessionId} sessionId={sessionId} />
+      {imageNotice && (
+        <output className="px-2 py-1 text-xs text-maestro-muted">{imageNotice}</output>
+      )}
       {/* Rich header bar */}
       <TerminalHeader
         sessionId={sessionId}
