@@ -2,6 +2,38 @@
 @tailwind components;
 @tailwind utilities;
 
+@font-face {
+  font-family: Inter;
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/InterVariable.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/JetBrainsMono-Regular.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/JetBrainsMono-Medium.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/JetBrainsMono-SemiBold.woff2") format("woff2");
+}
+
 @layer base {
   /* ── Theme: CSS Variables (RGB triplets for Tailwind alpha support) ── */
 
@@ -10,18 +42,20 @@
     --mac-title-bar-inset: 0;
 
     /* Low-glare chrome for long terminal sessions; colour signals state. */
-    --maestro-bg: 18 19 23;
-    --maestro-surface: 23 24 29;
-    --maestro-card: 30 32 38;
-    --maestro-border: 49 52 62;
-    --maestro-text: 235 236 241;
-    --maestro-muted: 160 164 180;
+    --maestro-bg: 13 13 16;
+    --maestro-surface: 18 19 22;
+    --maestro-card: 24 25 28;
+    --maestro-border: 38 38 44;
+    --maestro-text: 232 232 236;
+    --maestro-muted: 148 148 160;
+    --maestro-on-accent: 13 13 16;
+    --maestro-accent-ink: 130 143 255;
 
     /* Brand accent and semantic status colours. */
     --maestro-accent: 130 143 255; /* #828fff — the Vanguard V, sampled from the app icon; brand, and signals "needs your input" */
     --maestro-blue: 59 130 246; /* #3b82f6 — working / focused */
     --maestro-green: 63 185 80; /* #3fb950 */
-    --maestro-red: 220 38 38; /* #dc2626 — error red. Kept red on purpose once the brand went purple: this one means something is broken, and it is the only red left carrying that meaning */
+    --maestro-red: 240 97 109;
     --maestro-orange: 245 158 11; /* #f59e0b — matches design spec */
     --maestro-yellow: 234 179 8; /* #eab308 — needs input */
     --maestro-purple: 188 140 255; /* #bc8cff */
@@ -29,13 +63,21 @@
 
   /* Light theme — clean neutral with strong contrast */
   [data-theme="light"] {
-    --maestro-bg: 243 244 247;
-    --maestro-surface: 250 250 252;
-    --maestro-card: 233 235 241;
-    --maestro-border: 207 210 222;
-    --maestro-text: 28 31 41;
-    --maestro-muted: 86 93 113;
-    --maestro-accent: 83 85 184;
+    --maestro-bg: 246 246 248;
+    --maestro-surface: 255 255 255;
+    --maestro-card: 250 250 252;
+    --maestro-border: 220 220 226;
+    --maestro-text: 16 16 20;
+    --maestro-muted: 92 92 104;
+    --maestro-accent: 74 88 201;
+    --maestro-on-accent: 255 255 255;
+    --maestro-accent-ink: 47 58 143;
+    --maestro-blue: 37 99 235;
+    --maestro-green: 44 140 61;
+    --maestro-red: 201 42 55;
+    --maestro-orange: 176 109 5;
+    --maestro-yellow: 138 107 6;
+    --maestro-purple: 123 78 204;
   }
 
   /* ── Theme transition on chrome (scoped to direct children) ── */
@@ -63,7 +105,7 @@
   }
 
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-family: Inter, system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     background-color: rgb(var(--maestro-bg));
@@ -96,6 +138,259 @@
 }
 
 @layer components {
+  .workbench-rail {
+    width: 58px;
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    overflow-x: hidden;
+    overflow-y: auto;
+    background: rgb(var(--maestro-surface));
+    border-right: 1px solid rgb(var(--maestro-border));
+    transition: width 160ms ease;
+  }
+  .workbench-rail[data-expanded="true"] {
+    width: 232px;
+  }
+  .workbench-brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    height: 46px;
+    flex: none;
+    padding: 0 14px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .workbench-brand-mark {
+    width: 22px;
+    flex: none;
+    text-align: center;
+    font:
+      600 15px "JetBrains Mono",
+      monospace;
+    color: rgb(var(--maestro-accent));
+  }
+  .workbench-navigation {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 6px 8px;
+  }
+  .workbench-rail-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 34px;
+    flex: none;
+    padding: 8px;
+    border-radius: 7px;
+    color: rgb(var(--maestro-muted));
+    font:
+      500 12.5px Inter,
+      sans-serif;
+    text-align: left;
+    white-space: nowrap;
+  }
+  .workbench-rail-row:hover {
+    background: rgb(var(--maestro-card));
+  }
+  .workbench-rail-row[aria-current="page"],
+  .workbench-rail-row[aria-pressed="true"] {
+    background: rgb(var(--maestro-accent) / 0.14);
+    color: rgb(var(--maestro-accent-ink));
+  }
+  .workbench-rail-row:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .workbench-rail-icon {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    width: 22px;
+    flex: none;
+  }
+  .workbench-rail-label {
+    white-space: nowrap;
+  }
+  .workbench-rail[data-expanded="false"] .workbench-rail-label,
+  .workbench-rail[data-expanded="false"] .workbench-project-close {
+    display: none;
+  }
+  .workbench-attention {
+    width: 5px;
+    height: 5px;
+    flex: none;
+    border-radius: 50%;
+    background: rgb(var(--maestro-accent));
+  }
+  .workbench-rail[data-expanded="false"] .workbench-attention {
+    position: absolute;
+    top: 6px;
+    right: 4px;
+  }
+  .workbench-project-divider {
+    height: 1px;
+    margin: 8px 12px;
+    background: rgb(var(--maestro-border));
+    flex: none;
+  }
+  .workbench-projects {
+    display: flex;
+    flex-direction: column;
+    padding: 0 8px;
+    min-height: 0;
+    flex: 0 1 auto;
+  }
+  .workbench-project-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 8px 8px;
+  }
+  .workbench-project-heading button {
+    padding: 0;
+  }
+  .workbench-project-row {
+    min-height: 29px;
+    padding: 7px 8px;
+    font-size: 12.5px;
+    font-weight: 400;
+    line-height: 15px;
+  }
+  .workbench-project-row > span {
+    gap: 10px;
+    min-width: 0;
+  }
+  .workbench-project-row[aria-selected="true"] {
+    background: rgb(var(--maestro-accent) / 0.12);
+  }
+  .workbench-project-close {
+    opacity: 0;
+  }
+  .workbench-project-count {
+    font-family: "JetBrains Mono", monospace;
+    line-height: 15px;
+    background: transparent;
+  }
+  .workbench-project-row:hover .workbench-project-close,
+  .workbench-project-row:focus-within .workbench-project-close {
+    opacity: 1;
+  }
+  .workbench-rail-bottom {
+    margin-top: auto;
+    flex: none;
+    padding: 8px;
+  }
+  .workbench-tools-surface {
+    position: absolute;
+    inset: 0 auto 0 58px;
+    z-index: 60;
+    box-shadow: 12px 0 24px rgb(0 0 0 / 0.2);
+  }
+  .workbench-rail[data-expanded="true"] + .workbench-tools-surface {
+    left: 232px;
+  }
+  .workbench-more {
+    margin-bottom: 8px;
+    border-bottom: 1px solid rgb(var(--maestro-border));
+    padding-bottom: 8px;
+  }
+  .workbench-dock {
+    width: 68px;
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    padding: 12px 0;
+    overflow-y: auto;
+    border-left: 1px solid rgb(var(--maestro-border));
+    background: rgb(var(--maestro-bg));
+  }
+  .workbench-dock button {
+    position: relative;
+    width: 58px;
+    height: 30px;
+    flex: none;
+    border-radius: 7px;
+    color: rgb(var(--maestro-muted));
+    font:
+      500 11px Inter,
+      sans-serif;
+  }
+  .workbench-dock button:hover {
+    background: rgb(var(--maestro-card));
+  }
+  .workbench-dock button[aria-pressed="true"] {
+    background: rgb(var(--maestro-accent) / 0.16);
+    color: rgb(var(--maestro-accent-ink));
+  }
+  .workbench-footer {
+    min-height: 48px;
+    flex: none;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 18px;
+    padding: 4px 22px;
+    border-top: 1px solid rgb(var(--maestro-border));
+    background: rgb(var(--maestro-surface));
+    font-family: "JetBrains Mono", monospace;
+    container: footer / inline-size;
+  }
+  .workbench-footer-sessions {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    min-width: 0;
+  }
+  .workbench-footer-account {
+    max-width: 180px;
+  }
+  .workbench-quick-open {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+    padding: 3px 9px;
+    border: 1px solid rgb(var(--maestro-border));
+    border-radius: 20px;
+    font-size: 10.5px;
+    color: rgb(var(--maestro-muted));
+  }
+  .workbench-footer-usage {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 18px;
+    margin-left: auto;
+    min-width: 0;
+  }
+  .workbench-footer-extra {
+    display: none;
+    align-items: center;
+    gap: 18px;
+  }
+  @container footer (max-width: 1100px) {
+    .workbench-footer-account {
+      display: none;
+    }
+  }
+  @container footer (max-width: 800px) {
+    .workbench-quick-open > span {
+      display: none;
+    }
+  }
+  @container footer (min-width: 1400px) {
+    .workbench-footer-extra {
+      display: flex;
+    }
+  }
+
   .workspace-toolbar {
     container: toolbar / inline-size;
   }

@@ -33,6 +33,28 @@ describe("TopBar", () => {
     useHealthStore.setState({ flags: [] });
   });
 
+  it("keeps Ledger distinct from Board and disables New session at capacity", () => {
+    const ledger = vi.fn();
+    const add = vi.fn();
+    const board = vi.fn();
+    renderTopBar({
+      layout: "rail",
+      boardViewOpen: true,
+      ledgerViewOpen: true,
+      onOpenLedger: ledger,
+      onSetBoardView: board,
+      onAddSession: add,
+      canAddSession: false,
+    });
+    expect(screen.getByRole("button", { name: "Ledger" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Board" })).not.toHaveAttribute("aria-current");
+    fireEvent.click(screen.getByRole("button", { name: "Board" }));
+    expect(board).toHaveBeenCalledWith(true);
+    fireEvent.click(screen.getByRole("button", { name: "New session" }));
+    expect(add).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "New session" })).toBeDisabled();
+  });
+
   it("keeps the current rail destination open when selected again", () => {
     const toggle = vi.fn();
     render(
@@ -50,12 +72,12 @@ describe("TopBar", () => {
     expect(toggle).not.toHaveBeenCalled();
   });
 
-  it("routes Work and Terminals from the rail to their explicit destinations", () => {
+  it("routes Board and Terminals from the rail to their explicit destinations", () => {
     const select = vi.fn();
     const { rerender } = render(
       <TopBar layout="rail" sidebarOpen onToggleSidebar={() => {}} onSetBoardView={select} />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Work" }));
+    fireEvent.click(screen.getByRole("button", { name: "Board" }));
     expect(select).toHaveBeenLastCalledWith(true);
     rerender(
       <TopBar

@@ -1,5 +1,5 @@
-import { ChevronDown, type LucideIcon, PanelLeft } from "lucide-react";
-import type { ReactNode } from "react";
+import { type LucideIcon, MoreHorizontal, PanelLeft, Pin } from "lucide-react";
+import { type ReactNode, useRef, useState } from "react";
 
 export interface RailDestination {
   label: string;
@@ -7,6 +7,7 @@ export interface RailDestination {
   selected?: boolean;
   pressed?: boolean;
   attention?: boolean;
+  disabled?: boolean;
   badge?: ReactNode;
   onClick?: () => void;
 }
@@ -17,22 +18,24 @@ export function WorkbenchRail({
   sidebarOpen,
   onToggleSidebar,
   footer,
+  projectNavigation,
 }: {
   primary: RailDestination[];
   tools: RailDestination[];
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
   footer?: ReactNode;
+  projectNavigation?: ReactNode;
 }) {
-  const destination = ({
-    label,
-    icon: Icon,
-    selected,
-    pressed,
-    attention,
-    badge,
-    onClick,
-  }: RailDestination) =>
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLButtonElement>(null);
+  const destination = (
+    { label, icon: Icon, selected, pressed, attention, disabled, badge, onClick }: RailDestination,
+    closeMore = false,
+  ) =>
     onClick && (
       <button
         key={label}
@@ -40,52 +43,95 @@ export function WorkbenchRail({
         aria-label={label}
         aria-current={selected ? "page" : undefined}
         aria-pressed={pressed}
-        onClick={selected ? undefined : onClick}
-        className={`relative flex min-h-14 w-full shrink-0 flex-col items-center justify-center gap-1 rounded-lg px-1 py-2 text-[10px] transition-colors ${selected || pressed ? "bg-maestro-accent/15 text-maestro-accent" : "text-maestro-muted hover:bg-maestro-card hover:text-maestro-text"}`}
+        disabled={disabled}
+        onClick={() => {
+          if (!selected) onClick();
+          if (closeMore) setMoreOpen(false);
+        }}
+        className="workbench-rail-row"
       >
-        <span className="relative">
-          <Icon size={19} strokeWidth={1.6} />
+        <span className="workbench-rail-icon">
+          <Icon size={16} strokeWidth={1.75} />
           {badge}
         </span>
-        <span>{label}</span>
+        <span className="workbench-rail-label">{label}</span>
         {attention && (
-          <span
-            role="img"
-            className="absolute right-3 top-2 h-1.5 w-1.5 rounded-full bg-maestro-accent"
-            aria-label="Needs attention"
-          />
+          <span role="img" className="workbench-attention" aria-label="Needs attention" />
         )}
       </button>
     );
   return (
     <nav
       aria-label="Workspace"
-      className="workbench-rail flex w-[88px] shrink-0 flex-col gap-1 overflow-y-auto border-r border-maestro-border p-2"
+      data-expanded={pinned || hovered || focused || moreOpen}
+      className="workbench-rail"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocusCapture={() => setFocused(true)}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          setFocused(false);
+          setMoreOpen(false);
+        }
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && moreOpen) {
+          event.stopPropagation();
+          setMoreOpen(false);
+          moreRef.current?.focus();
+        }
+      }}
     >
-      {primary.map(destination)}
-      <details className="mt-3 border-t border-maestro-border pt-3">
-        <summary className="flex cursor-pointer items-center justify-center gap-1 py-2 text-[10px] text-maestro-muted">
-          Tools <ChevronDown size={12} />
-          {tools.some((tool) => tool.attention) && (
-            <span
-              role="img"
-              aria-label="Tools need attention"
-              className="h-1.5 w-1.5 rounded-full bg-maestro-accent"
-            />
-          )}
-        </summary>
-        {tools.map(destination)}
-      </details>
-      <div className="mt-auto flex flex-col items-center gap-3 pt-5">
-        {footer}
+      <div className="workbench-brand">
+        <span className="workbench-brand-mark">V</span>
+        <span className="workbench-rail-label">Vanguard</span>
+      </div>
+      <div className="workbench-navigation">{primary.map((item) => destination(item))}</div>
+      <div className="workbench-project-divider" />
+      {projectNavigation}
+      <div className="workbench-rail-bottom">
+        {moreOpen && (
+          <div className="workbench-more">
+            {tools.map((item) => destination(item, true))}
+            {destination(
+              {
+                label: "Toggle sidebar",
+                icon: PanelLeft,
+                pressed: sidebarOpen,
+                onClick: onToggleSidebar,
+              },
+              true,
+            )}
+            {footer}
+          </div>
+        )}
         <button
           type="button"
-          aria-label="Toggle sidebar"
-          aria-pressed={sidebarOpen}
-          onClick={onToggleSidebar}
-          className="rounded-md p-3 text-maestro-muted hover:bg-maestro-card hover:text-maestro-text"
+          aria-label="Pin navigation"
+          aria-pressed={pinned}
+          onClick={() => setPinned((value) => !value)}
+          className="workbench-rail-row"
         >
-          <PanelLeft size={18} />
+          <span className="workbench-rail-icon">
+            <Pin size={16} />
+          </span>
+          <span className="workbench-rail-label">Pin navigation</span>
+        </button>
+        <button
+          ref={moreRef}
+          type="button"
+          aria-label="More"
+          aria-expanded={moreOpen}
+          onClick={() => setMoreOpen((value) => !value)}
+          className="workbench-rail-row"
+        >
+          <span className="workbench-rail-icon">
+            <MoreHorizontal size={16} />
+          </span>
+          <span className="workbench-rail-label">More</span>
+          {tools.some((tool) => tool.attention) && (
+            <span role="img" aria-label="Tools need attention" className="workbench-attention" />
+          )}
         </button>
       </div>
     </nav>

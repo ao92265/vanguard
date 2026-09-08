@@ -25,7 +25,8 @@ export default {
         },
       },
       fontFamily: {
-        mono: ["JetBrains Mono", "Fira Code", "Cascadia Code", "monospace"],
+        sans: ["Inter", "system-ui", "sans-serif"],
+        mono: ["JetBrains Mono", "ui-monospace", "monospace"],
       },
     },
   },

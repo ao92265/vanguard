@@ -22,6 +22,18 @@ function renderBottomBar(overrides: Partial<ComponentProps<typeof BottomBar>> = 
 }
 
 describe("BottomBar launch button", () => {
+  it("exposes quick-open and footer actions beside the live launch control", () => {
+    const search = vi.fn();
+    renderBottomBar({
+      slotCount: 1,
+      onSearch: search,
+      actions: <button type="button">Reviews</button>,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Find project or terminal" }));
+    expect(search).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Reviews" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Launch Session" })).toBeEnabled();
+  });
   it("renders no button when there is nothing left to launch", () => {
     // The pivot's trigger case: a permanently disabled "Launch Sessions" was
     // the only state wearing that label. Hide until launchable.

@@ -8,7 +8,9 @@ import {
   Gauge,
   GitMerge,
   Home,
+  Inbox,
   LayoutGrid,
+  List,
   Minus,
   MoreHorizontal,
   Network,
@@ -21,7 +23,7 @@ import {
   Workflow,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { MAX_SESSIONS } from "@/components/terminal/splitTree";
 import { isMac } from "@/lib/platform";
 import { modLabel, titleWithShortcut } from "@/lib/shortcuts";
@@ -40,6 +42,11 @@ export interface EagleProjectOption {
 }
 
 interface TopBarProps {
+  projectNavigation?: ReactNode;
+  railFooter?: ReactNode;
+  ledgerViewOpen?: boolean;
+  onOpenLedger?: () => void;
+  canAddSession?: boolean;
   layout?: "toolbar" | "rail";
   workflowsViewOpen?: boolean;
   sidebarOpen: boolean;
@@ -111,6 +118,11 @@ interface TopBarProps {
 }
 
 export function TopBar({
+  projectNavigation,
+  railFooter,
+  ledgerViewOpen = false,
+  onOpenLedger,
+  canAddSession = true,
   layout = "toolbar",
   workflowsViewOpen = false,
   sidebarOpen,
@@ -155,7 +167,6 @@ export function TopBar({
   // menu; this feeds the aggregated dot on the More button below (the
   // per-item badge inside the menu still uses HealthAttentionBadge directly).
   const memoryHealthCount = useHealthStore((s) => countForArea(s.flags, "memory"));
-  const processesHealthCount = useHealthStore((s) => countForArea(s.flags, "processes"));
 
   // Eagle view add-terminal dropdown (pick which project gets the new terminal)
   const [addMenuOpen, setAddMenuOpen] = useState(false);
@@ -228,33 +239,22 @@ export function TopBar({
       workflowsViewOpen;
     return (
       <WorkbenchRail
+        projectNavigation={projectNavigation}
         sidebarOpen={sidebarOpen}
         onToggleSidebar={onToggleSidebar}
         primary={[
           {
-            label: "Work",
-            icon: Columns,
-            selected: boardViewOpen && !covered,
-            onClick: onSetBoardView ? () => onSetBoardView(true) : undefined,
-          },
-          {
-            label: "Terminals",
-            icon: LayoutGrid,
-            selected: !boardViewOpen && !covered,
-            onClick: onSetBoardView ? () => onSetBoardView(false) : undefined,
-          },
-          {
             label: "Inbox",
-            icon: Home,
+            icon: Inbox,
             selected: homeViewOpen,
             attention: homeAttention,
             onClick: onToggleHomeView,
           },
           {
-            label: "Factory",
-            icon: Factory,
-            selected: factoryViewOpen,
-            onClick: onToggleFactoryView,
+            label: "Board",
+            icon: Columns,
+            selected: boardViewOpen && !ledgerViewOpen && !covered,
+            onClick: onSetBoardView ? () => onSetBoardView(true) : undefined,
           },
           {
             label: "Orchestrator",
@@ -262,7 +262,26 @@ export function TopBar({
             selected: orchestratorViewOpen,
             onClick: onToggleOrchestratorView,
           },
-          { label: "Pulse", icon: Activity, selected: pulseViewOpen, onClick: onTogglePulseView },
+          { label: "Pulse", icon: Gauge, selected: pulseViewOpen, onClick: onTogglePulseView },
+          {
+            label: "Factory",
+            icon: Factory,
+            selected: factoryViewOpen,
+            onClick: onToggleFactoryView,
+          },
+          {
+            label: "Ledger",
+            icon: List,
+            selected: boardViewOpen && ledgerViewOpen && !covered,
+            onClick: onOpenLedger,
+          },
+          { label: "New session", icon: Plus, disabled: !canAddSession, onClick: onAddSession },
+          {
+            label: "Terminals",
+            icon: LayoutGrid,
+            selected: !boardViewOpen && !covered,
+            onClick: onSetBoardView ? () => onSetBoardView(false) : undefined,
+          },
         ]}
         tools={[
           { label: "Fleet", icon: Bird, pressed: eagleView, onClick: onToggleEagleView },
@@ -273,23 +292,6 @@ export function TopBar({
             attention: landscapeAttention,
             onClick: onToggleLandscapeView,
           },
-          { label: "Git", icon: GitMerge, pressed: gitPanelOpen, onClick: onToggleGitPanel },
-          {
-            label: "Processes",
-            icon: Gauge,
-            pressed: processesPanelOpen,
-            attention: processesHealthCount > 0,
-            badge: <HealthAttentionBadge area="processes" />,
-            onClick: onToggleProcessesPanel,
-          },
-          { label: "AI", icon: Sparkles, pressed: aiPanelOpen, onClick: onToggleAiPanel },
-          {
-            label: "Memory",
-            icon: Brain,
-            attention: memoryHealthCount > 0,
-            badge: <HealthAttentionBadge area="memory" />,
-            onClick: onToggleMemoryPanel,
-          },
           {
             label: "Workflows",
             icon: Workflow,
@@ -298,7 +300,7 @@ export function TopBar({
           },
           { label: "Extensions", icon: Package, onClick: onOpenExtensions },
         ]}
-        footer={onWatchdogNavigate && <GitHubWatchdogBadge onNavigate={onWatchdogNavigate} />}
+        footer={railFooter}
       />
     );
   }

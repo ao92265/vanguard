@@ -100,7 +100,8 @@ function TabItem({
       tabIndex={tab.active ? 0 : -1}
       onClick={onSelect}
       onKeyDown={onKeyDown}
-      className={`flex ${vertical ? "min-h-11 w-full justify-between" : "max-w-64"} shrink-0 items-center gap-2 rounded-md px-3 py-2 text-xs font-medium cursor-pointer ${
+      aria-label={tab.name}
+      className={`flex ${vertical ? "workbench-project-row w-full justify-between" : "max-w-64 px-3 py-2"} shrink-0 items-center gap-2 rounded-md text-xs font-medium cursor-pointer ${
         tab.active
           ? "bg-maestro-bg text-maestro-text"
           : "text-maestro-muted hover:text-maestro-text"
@@ -112,10 +113,10 @@ function TabItem({
             shouldPulse ? "animate-pulse" : ""
           }`}
         />
-        <span className="truncate">{tab.name}</span>
+        <span className={vertical ? "workbench-rail-label truncate" : "truncate"}>{tab.name}</span>
         {sessionCount > 0 && (
           <span
-            className={`shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+            className={`${vertical ? "workbench-rail-label workbench-project-count" : "px-1.5 py-0.5 rounded-full"} shrink-0 text-[10px] font-medium ${
               status === "needs-input"
                 ? "bg-maestro-accent/20 text-maestro-accent"
                 : status === "working"
@@ -134,7 +135,7 @@ function TabItem({
           onClose();
         }}
         onPointerDown={(e) => e.stopPropagation()}
-        className="ml-1 shrink-0 rounded p-0.5 hover:bg-maestro-border"
+        className={`${vertical ? "workbench-project-close" : ""} ml-1 shrink-0 rounded p-0.5 hover:bg-maestro-border`}
         aria-label={`Close ${tab.name}`}
       >
         <X size={10} />
@@ -225,19 +226,11 @@ export function ProjectTabs({
 
   if (vertical)
     return (
-      <section className="flex max-h-[40%] min-h-24 shrink-0 flex-col border-b border-maestro-border p-3">
-        <div className="mb-2 flex shrink-0 items-center justify-between px-2">
-          <h2 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-maestro-muted">
+      <section className="workbench-projects">
+        <div className="workbench-project-heading workbench-rail-label">
+          <h2 className="workbench-rail-label font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-maestro-muted">
             Projects <span className="ml-1 opacity-60">{tabs.length}</span>
           </h2>
-          <button
-            type="button"
-            onClick={onNewTab}
-            aria-label="Open new project"
-            className="rounded p-2 text-maestro-muted hover:bg-maestro-card hover:text-maestro-text"
-          >
-            <Plus size={15} />
-          </button>
         </div>
         <DndContext
           sensors={sensors}
@@ -250,7 +243,7 @@ export function ProjectTabs({
               role="tablist"
               aria-label="Open projects"
               aria-orientation="vertical"
-              className="flex min-h-0 flex-col gap-1 overflow-y-auto"
+              className="flex min-h-0 flex-col overflow-y-auto"
             >
               {tabs.length === 0 ? (
                 <span className="px-2 py-3 text-xs text-maestro-muted">
@@ -272,6 +265,17 @@ export function ProjectTabs({
             </div>
           </SortableContext>
         </DndContext>
+        <button
+          type="button"
+          onClick={onNewTab}
+          aria-label="Open new project"
+          className="workbench-rail-row"
+        >
+          <span className="workbench-rail-icon">
+            <Plus size={15} />
+          </span>
+          <span className="workbench-rail-label">Open project</span>
+        </button>
       </section>
     );
 

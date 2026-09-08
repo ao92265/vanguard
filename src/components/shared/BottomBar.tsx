@@ -1,12 +1,15 @@
-import { Play, UserRound } from "lucide-react";
-import { useEffect } from "react";
+import { Play, Search, UserRound } from "lucide-react";
+import { type ReactNode, useEffect } from "react";
 import { EcosystemStrip } from "@/components/shared/EcosystemStrip";
+import { modLabel } from "@/lib/shortcuts";
 import { useClaudeAccountStore } from "@/stores/useClaudeAccountStore";
 import { SystemMetrics } from "./SystemMetrics";
 import { TerminalNavigator } from "./TerminalNavigator";
 import { UsageBar } from "./UsageBar";
 
 interface BottomBarProps {
+  onSearch?: () => void;
+  actions?: ReactNode;
   /** Number of total slots (pre-launch + launched) */
   slotCount: number;
   /** Number of actually running sessions */
@@ -17,6 +20,8 @@ interface BottomBarProps {
 }
 
 export function BottomBar({
+  onSearch,
+  actions,
   slotCount,
   launchedCount,
   onLaunchAll,
@@ -31,16 +36,12 @@ export function BottomBar({
   }, [fetchAccount]);
 
   return (
-    <div className="no-select relative flex h-11 items-center justify-center gap-3 px-4">
-      {/* Centered with inset-y-0 + items-center rather than
-          top-1/2/-translate-y-1/2: a transform creates a stacking context, and
-          that would trap TerminalNavigator's drop-up below the terminal layers
-          (project wrapper z-10, zoomed pane z-40) no matter its own z-index. */}
-      <div className="absolute inset-y-0 left-4 flex max-w-[40%] items-center gap-2">
+    <div className="workbench-footer no-select">
+      <div className="workbench-footer-sessions">
         <TerminalNavigator onNavigate={onNavigateToSession} />
         {account?.email && (
           <div
-            className="flex min-w-0 items-center gap-1.5 text-[11px] text-maestro-muted/70"
+            className="workbench-footer-account flex min-w-0 items-center gap-1.5 text-[11px] text-maestro-muted"
             title={`Claude Code account: ${account.email}`}
           >
             <UserRound size={12} className="shrink-0" />
@@ -48,6 +49,19 @@ export function BottomBar({
           </div>
         )}
       </div>
+      {onSearch && (
+        <button
+          type="button"
+          onClick={onSearch}
+          aria-label="Find project or terminal"
+          className="workbench-quick-open"
+        >
+          <Search size={12} />
+          <span>Jump to anything</span>
+          <kbd>{modLabel()}P</kbd>
+        </button>
+      )}
+      {actions}
       {/* Hide until launchable. With nothing to launch this used to render a
           permanently disabled "Launch Sessions", and that dead state was the
           only one ever wearing the label. The pre-launch empty state carries
@@ -63,13 +77,11 @@ export function BottomBar({
         </button>
       )}
 
-      {/* inset-y-0 + items-center for the same stacking-context reason as the
-          left cluster. Bounded like the left one: the inline usage bars grow
-          with however many windows the API reports, and an unbounded absolute
-          cluster would reach past the centre and cover the Launch button. */}
-      <div className="absolute inset-y-0 right-4 flex max-w-[55%] items-center justify-end gap-4 overflow-hidden">
-        <EcosystemStrip />
-        <SystemMetrics />
+      <div className="workbench-footer-usage">
+        <div className="workbench-footer-extra">
+          <EcosystemStrip />
+          <SystemMetrics />
+        </div>
         <UsageBar />
       </div>
     </div>

@@ -31,6 +31,7 @@ import type { GitPanelTab } from "./components/git/GitPanelTabs";
 import { BottomBar } from "./components/shared/BottomBar";
 import { EagleProjectPickerModal } from "./components/shared/EagleProjectPickerModal";
 import { FDADialog } from "./components/shared/FDADialog";
+import { GitHubWatchdogBadge } from "./components/shared/GitHubWatchdogBadge";
 import {
   MultiProjectView,
   type MultiProjectViewHandle,
@@ -44,6 +45,7 @@ import { ProjectTabs } from "./components/shared/ProjectTabs";
 import { QuickOpenPalette } from "./components/shared/QuickOpenPalette";
 import { type EagleProjectOption, TopBar } from "./components/shared/TopBar";
 import { UtilityPanel, type UtilityPanelKind } from "./components/shared/UtilityPanel";
+import { WorkbenchDock } from "./components/shared/WorkbenchDock";
 import { WorkbenchTitleBar } from "./components/shared/WorkbenchTitleBar";
 import {
   loadSavedSidebarTab,
@@ -178,7 +180,7 @@ function App() {
   const dismissFDADialogPermanently = useFDAStore((s) => s.dismissPermanently);
   const retryAfterFDAGrant = useFDAStore((s) => s.retryAfterGrant);
   const multiProjectRef = useRef<MultiProjectViewHandle>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   // Active left-sidebar tab — lifted out of Sidebar so Alt+1-3 can drive it.
   const [sidebarTab, setSidebarTab] = useState<SidebarTabId>(loadSavedSidebarTab);
   const [gitPanelOpen, setGitPanelOpen] = useState(false);
@@ -216,6 +218,7 @@ function App() {
   // Board layer: the shell the app opens on. It sits at z-45, under every
   // overlay that follows, so it takes no part in their exclusivity dance.
   const boardViewOpen = useBoardViewStore((s) => s.isOpen);
+  const [boardMode, setBoardMode] = useState<"board" | "ledger">("board");
   const closeBoardView = useBoardViewStore((s) => s.close);
   // Home decision queue overlay. The full-screen overlays assume they are
   // never open together, so opening Home closes the other two and vice versa
@@ -1097,22 +1100,9 @@ function App() {
       className="vanguard-workspace flex h-dvh w-full flex-col bg-maestro-bg"
       style={{ ["--mac-title-bar-inset" as string]: macTitleBarInset }}
     >
-      <WorkbenchTitleBar
-        projectName={activeTab?.name}
-        onSearch={() => setQuickOpenOpen(true)}
-        onAddSession={() => {
-          handleWorkbenchNavigate(false);
-          if (eagleView) handleAddSessionShortcut();
-          else if (activeTab) handleAddSessionToProject(activeTab.id);
-        }}
-        canAddSession={
-          eagleView
-            ? eagleProjects.some((project) => !project.atMax)
-            : !!activeTab && activeTabSlotCount < MAX_SESSIONS
-        }
-      />
+      <WorkbenchTitleBar projectName={activeTab?.name} />
 
-      <div className="flex min-h-0 flex-1 overflow-hidden">
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
         <TopBar
           layout="rail"
           sidebarOpen={sidebarOpen}
@@ -1131,7 +1121,25 @@ function App() {
           }}
           landscapeAttention={needsInputAnywhere}
           boardViewOpen={boardViewOpen}
-          onSetBoardView={handleWorkbenchNavigate}
+          onSetBoardView={(open) => {
+            setBoardMode("board");
+            handleWorkbenchNavigate(open);
+          }}
+          ledgerViewOpen={boardMode === "ledger"}
+          onOpenLedger={() => {
+            setBoardMode("ledger");
+            handleWorkbenchNavigate(true);
+          }}
+          onAddSession={() => {
+            handleWorkbenchNavigate(false);
+            if (eagleView) handleAddSessionShortcut();
+            else if (activeTab) handleAddSessionToProject(activeTab.id);
+          }}
+          canAddSession={
+            eagleView
+              ? eagleProjects.some((project) => !project.atMax)
+              : !!activeTab && activeTabSlotCount < MAX_SESSIONS
+          }
           homeViewOpen={homeViewOpen}
           onToggleHomeView={handleToggleHomeView}
           factoryViewOpen={factoryViewOpen}
@@ -1150,8 +1158,6 @@ function App() {
           onOpenExtensions={handleOpenExtensions}
           onOpenWorkflows={handleOpenWorkflows}
           workflowsViewOpen={workflowsViewOpen}
-        />
-        <Sidebar
           projectNavigation={
             <ProjectTabs
               vertical
@@ -1170,197 +1176,180 @@ function App() {
               onMoveTab={moveTab}
             />
           }
-          collapsed={!sidebarOpen}
-          onCollapse={() => setSidebarOpen(false)}
-          activeTab={sidebarTab}
-          onSelectTab={handleSelectSidebarTab}
-          theme={theme}
-          onToggleTheme={toggleTheme}
-          launchedCount={activeTabLaunchedCount}
-          isStoppingAll={isStoppingAll}
-          onStopAll={handleStopAll}
-          onAgentNavigate={handleAgentNavigate}
-          onAgentKill={handleAgentKill}
-          onHistoryLaunch={handleHistoryLaunch}
         />
+        <div className={`workbench-tools-surface ${sidebarOpen ? "" : "hidden"}`}>
+          <button
+            type="button"
+            aria-label="Close tools"
+            onClick={() => setSidebarOpen(false)}
+            className="absolute right-2 top-10 z-10 rounded bg-maestro-surface p-1 text-maestro-muted hover:text-maestro-text"
+          >
+            <X size={14} />
+          </button>
+          <Sidebar
+            collapsed={!sidebarOpen}
+            onCollapse={() => setSidebarOpen(false)}
+            activeTab={sidebarTab}
+            onSelectTab={handleSelectSidebarTab}
+            theme={theme}
+            onToggleTheme={toggleTheme}
+            launchedCount={activeTabLaunchedCount}
+            isStoppingAll={isStoppingAll}
+            onStopAll={handleStopAll}
+            onAgentNavigate={handleAgentNavigate}
+            onAgentKill={handleAgentKill}
+            onHistoryLaunch={handleHistoryLaunch}
+          />
+        </div>
 
-        {/* Right column: top bar + content + bottom bar */}
+        {/* Workspace content and full-height utility panels */}
         <div className="flex flex-1 flex-col overflow-hidden">
-          {gitPanelOpen && (
-            <div className="relative z-10 flex shrink-0 justify-end border-b border-maestro-border bg-maestro-surface">
-              {/* Git panel header - inline at same level as TopBar.
-                In eagle view it describes the carousel-selected project. */}
-              {gitPanelOpen && (
-                <div
-                  className="flex h-10 shrink-0 items-center border-l border-maestro-border px-3 gap-2 bg-maestro-bg"
-                  style={{ width: rightPanelWidth }}
-                >
-                  <GitFork size={14} className="text-maestro-muted" />
-                  {gitTargetTab?.workspaceType === "multi-repo" &&
-                    gitTargetTab.selectedRepoPath && (
-                      <span className="text-xs font-medium text-maestro-accent">
-                        {
-                          gitTargetTab.repositories.find(
-                            (r) => r.path === gitTargetTab.selectedRepoPath,
-                          )?.name
-                        }
-                      </span>
-                    )}
-                  <span className="text-sm font-medium text-maestro-text">
-                    {GIT_PANEL_TITLES[gitPanelTab]}
-                  </span>
-                  {gitPanelTab === "commits" && commitCount > 0 && (
-                    <span className="rounded-full bg-maestro-accent/15 px-1.5 py-px text-[10px] font-medium text-maestro-accent">
-                      {commitCount}
-                    </span>
-                  )}
-                  <div className="flex-1" />
-                  {gitRepoPath && (
-                    <button
-                      type="button"
-                      onClick={handleRefreshGit}
-                      disabled={isRefreshingGit}
-                      className="rounded p-1 text-maestro-muted transition-colors hover:bg-maestro-card hover:text-maestro-text disabled:opacity-50"
-                      aria-label="Refresh commits"
-                    >
-                      <RefreshCw size={14} className={isRefreshingGit ? "animate-spin" : ""} />
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setGitPanelOpen(false)}
-                    className="rounded p-1 text-maestro-muted transition-colors hover:bg-maestro-card hover:text-maestro-text"
-                    aria-label="Close git panel"
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
           {/* Content area (main + optional git panel) */}
           <div className="relative isolate z-0 flex flex-1 overflow-hidden">
             {/* Main content - MultiProjectView keeps all projects alive */}
-            <main className="relative flex-1 overflow-hidden bg-maestro-bg">
-              <MultiProjectView
-                ref={multiProjectRef}
-                onSessionCountChange={handleSessionCountChange}
-                eagleView={eagleView}
-              />
+            <div className="flex min-w-0 flex-1 flex-col">
+              <main className="relative min-h-0 flex-1 overflow-hidden bg-maestro-bg">
+                <MultiProjectView
+                  ref={multiProjectRef}
+                  onSessionCountChange={handleSessionCountChange}
+                  eagleView={eagleView}
+                />
 
-              {/* The Board, at z-45: above the zoomed grid pane (z-40) and
+                {/* The Board, at z-45: above the zoomed grid pane (z-40) and
                   below every overlay after it (z-50), which is why the Board
                   needs no entry in the overlay-exclusivity rules. Open by
                   default (BOARD_DEFAULT_OPEN), and a layer like the rest, so
                   the terminals underneath keep running while it is up. */}
-              {boardViewOpen && (
-                <BoardView
-                  onNavigateSession={handleBoardNavigate}
-                  onOpenRun={handleBoardOpenRun}
-                  onLaunchHandoff={handleBoardLaunchHandoff}
-                  onOpenPr={(url) =>
-                    void openUrl(url).catch((err) => console.error("Failed to open PR:", err))
-                  }
-                  onShowGrid={closeBoardView}
-                  onOpenProject={handleBoardOpenProject}
-                  overlayOpen={
-                    landscapeView ||
-                    workflowsViewOpen ||
-                    homeViewOpen ||
-                    factoryViewOpen ||
-                    orchestratorViewOpen ||
-                    pulseViewOpen
-                  }
-                />
-              )}
-
-              {/* Landscape graph — an overlay, never a replacement: unmounting
-                  MultiProjectView would tear down every live terminal. */}
-              {landscapeView && (
-                <Suspense
-                  fallback={
-                    /* z-50 like the landscape itself: the zoomed eagle pane is
-                       z-40, and the fallback must cover it too. */
-                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-maestro-bg text-xs text-maestro-muted">
-                      Loading…
-                    </div>
-                  }
-                >
-                  <LandscapeView
-                    onNavigate={handleLandscapeNavigate}
-                    onClose={() => setLandscapeView(false)}
+                {boardViewOpen && (
+                  <BoardView
+                    onNavigateSession={handleBoardNavigate}
+                    onOpenRun={handleBoardOpenRun}
+                    onLaunchHandoff={handleBoardLaunchHandoff}
+                    onOpenPr={(url) =>
+                      void openUrl(url).catch((err) => console.error("Failed to open PR:", err))
+                    }
+                    onShowGrid={closeBoardView}
+                    onOpenProject={handleBoardOpenProject}
+                    overlayOpen={
+                      landscapeView ||
+                      workflowsViewOpen ||
+                      homeViewOpen ||
+                      factoryViewOpen ||
+                      orchestratorViewOpen ||
+                      pulseViewOpen
+                    }
                   />
-                </Suspense>
-              )}
+                )}
 
-              {/* Workflow editor — an overlay, same shell as the landscape
+                {/* Landscape graph — an overlay, never a replacement: unmounting
+                  MultiProjectView would tear down every live terminal. */}
+                {landscapeView && (
+                  <Suspense
+                    fallback={
+                      /* z-50 like the landscape itself: the zoomed eagle pane is
+                       z-40, and the fallback must cover it too. */
+                      <div className="absolute inset-0 z-50 flex items-center justify-center bg-maestro-bg text-xs text-maestro-muted">
+                        Loading…
+                      </div>
+                    }
+                  >
+                    <LandscapeView
+                      onNavigate={handleLandscapeNavigate}
+                      onClose={() => setLandscapeView(false)}
+                    />
+                  </Suspense>
+                )}
+
+                {/* Workflow editor — an overlay, same shell as the landscape
                   graph above (both z-50; not expected to be open together). */}
-              {workflowsViewOpen && (
-                <Suspense
-                  fallback={
-                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-maestro-bg text-xs text-maestro-muted">
-                      Loading…
-                    </div>
-                  }
-                >
-                  <WorkflowsView onClose={closeWorkflowsView} />
-                </Suspense>
-              )}
+                {workflowsViewOpen && (
+                  <Suspense
+                    fallback={
+                      <div className="absolute inset-0 z-50 flex items-center justify-center bg-maestro-bg text-xs text-maestro-muted">
+                        Loading…
+                      </div>
+                    }
+                  >
+                    <WorkflowsView onClose={closeWorkflowsView} />
+                  </Suspense>
+                )}
 
-              {/* Home decision queue — same overlay shell as the two above;
+                {/* Home decision queue — same overlay shell as the two above;
                   open by default so the day starts on what is blocked on you. */}
-              {homeViewOpen && (
-                <Suspense
-                  fallback={
-                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-maestro-bg text-xs text-maestro-muted">
-                      Loading…
-                    </div>
-                  }
-                >
-                  <HomeView onNavigate={handleHomeNavigate} onClose={closeHomeView} />
-                </Suspense>
-              )}
+                {homeViewOpen && (
+                  <Suspense
+                    fallback={
+                      <div className="absolute inset-0 z-50 flex items-center justify-center bg-maestro-bg text-xs text-maestro-muted">
+                        Loading…
+                      </div>
+                    }
+                  >
+                    <HomeView onNavigate={handleHomeNavigate} onClose={closeHomeView} />
+                  </Suspense>
+                )}
 
-              {/* Factory — the ACT lane, same overlay shell. */}
-              {factoryViewOpen && (
-                <Suspense
-                  fallback={
-                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-maestro-bg text-xs text-maestro-muted">
-                      Loading…
-                    </div>
-                  }
-                >
-                  <FactoryView onClose={closeFactoryView} />
-                </Suspense>
-              )}
+                {/* Factory — the ACT lane, same overlay shell. */}
+                {factoryViewOpen && (
+                  <Suspense
+                    fallback={
+                      <div className="absolute inset-0 z-50 flex items-center justify-center bg-maestro-bg text-xs text-maestro-muted">
+                        Loading…
+                      </div>
+                    }
+                  >
+                    <FactoryView onClose={closeFactoryView} />
+                  </Suspense>
+                )}
 
-              {/* Orchestrator — the goal box + proposal queue, same overlay shell. */}
-              {orchestratorViewOpen && (
-                <Suspense
-                  fallback={
-                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-maestro-bg text-xs text-maestro-muted">
-                      Loading…
-                    </div>
-                  }
-                >
-                  <OrchestratorView onClose={closeOrchestratorView} />
-                </Suspense>
-              )}
+                {/* Orchestrator — the goal box + proposal queue, same overlay shell. */}
+                {orchestratorViewOpen && (
+                  <Suspense
+                    fallback={
+                      <div className="absolute inset-0 z-50 flex items-center justify-center bg-maestro-bg text-xs text-maestro-muted">
+                        Loading…
+                      </div>
+                    }
+                  >
+                    <OrchestratorView onClose={closeOrchestratorView} />
+                  </Suspense>
+                )}
 
-              {/* Pulse — how the day is going, same overlay shell. */}
-              {pulseViewOpen && (
-                <Suspense
-                  fallback={
-                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-maestro-bg text-xs text-maestro-muted">
-                      Loading…
-                    </div>
-                  }
-                >
-                  <PulseView onClose={closePulseView} />
-                </Suspense>
-              )}
-            </main>
+                {/* Pulse — how the day is going, same overlay shell. */}
+                {pulseViewOpen && (
+                  <Suspense
+                    fallback={
+                      <div className="absolute inset-0 z-50 flex items-center justify-center bg-maestro-bg text-xs text-maestro-muted">
+                        Loading…
+                      </div>
+                    }
+                  >
+                    <PulseView onClose={closePulseView} />
+                  </Suspense>
+                )}
+              </main>
+              {/* Bottom action bar */}
+              <div className="bg-maestro-bg">
+                <BottomBar
+                  onSearch={() => setQuickOpenOpen(true)}
+                  actions={<GitHubWatchdogBadge onNavigate={handleWatchdogNavigate} />}
+                  slotCount={activeTabSlotCount}
+                  launchedCount={activeTabLaunchedCount}
+                  onLaunchAll={() => {
+                    if (!activeTabSessionsLaunched && activeTab) {
+                      // First enter grid view, then launch
+                      handleEnterGridView();
+                    }
+                    // Launching into a grid hidden behind the Board would look
+                    // like the button did nothing, so the Board steps aside.
+                    closeBoardView();
+                    multiProjectRef.current?.launchAllInActiveProject();
+                  }}
+                  onNavigateToSession={(tabId, sessionId) => {
+                    multiProjectRef.current?.navigateToSession(tabId, sessionId);
+                  }}
+                />
+              </div>
+            </div>
 
             {/* Memory / Processes utility panel (optional right side) */}
             {utilityPanel && (
@@ -1378,46 +1367,86 @@ function App() {
                 eagle view it becomes a carousel: one project card at a time,
                 switched via the EagleProjectSwitcher strip — the git stores
                 are singletons, so exactly one panel is ever mounted. */}
-            <GitGraphPanel
-              open={gitPanelOpen}
-              onClose={() => setGitPanelOpen(false)}
-              repoPath={gitRepoPath ?? null}
-              currentBranch={currentBranch ?? null}
-              repositories={gitTargetTab?.repositories ?? []}
-              workspaceType={gitTargetTab?.workspaceType ?? "single-repo"}
-              onRepoChange={(path) => gitTargetTab && setSelectedRepo(gitTargetTab.id, path)}
-              activeTab={gitPanelTab}
-              onActiveTabChange={setGitPanelTab}
-              width={rightPanelWidth}
-              onResize={handleRightPanelResize}
-              eagleProjects={eagleView ? eagleProjects : undefined}
-              eagleIndex={clampedEagleGitIndex}
-              onEaglePrev={handleEagleGitPrev}
-              onEagleNext={handleEagleGitNext}
-            />
-          </div>
+            <div className="flex min-h-0 shrink-0 flex-col">
+              {gitPanelOpen && (
+                <div className="relative z-10 flex shrink-0 justify-end border-b border-maestro-border bg-maestro-surface">
+                  {/* Git panel header - inline at same level as TopBar.
+                In eagle view it describes the carousel-selected project. */}
+                  {gitPanelOpen && (
+                    <div
+                      className="flex h-10 shrink-0 items-center border-l border-maestro-border px-3 gap-2 bg-maestro-bg"
+                      style={{ width: rightPanelWidth }}
+                    >
+                      <GitFork size={14} className="text-maestro-muted" />
+                      {gitTargetTab?.workspaceType === "multi-repo" &&
+                        gitTargetTab.selectedRepoPath && (
+                          <span className="text-xs font-medium text-maestro-accent">
+                            {
+                              gitTargetTab.repositories.find(
+                                (r) => r.path === gitTargetTab.selectedRepoPath,
+                              )?.name
+                            }
+                          </span>
+                        )}
+                      <span className="text-sm font-medium text-maestro-text">
+                        {GIT_PANEL_TITLES[gitPanelTab]}
+                      </span>
+                      {gitPanelTab === "commits" && commitCount > 0 && (
+                        <span className="rounded-full bg-maestro-accent/15 px-1.5 py-px text-[10px] font-medium text-maestro-accent">
+                          {commitCount}
+                        </span>
+                      )}
+                      <div className="flex-1" />
+                      {gitRepoPath && (
+                        <button
+                          type="button"
+                          onClick={handleRefreshGit}
+                          disabled={isRefreshingGit}
+                          className="rounded p-1 text-maestro-muted transition-colors hover:bg-maestro-card hover:text-maestro-text disabled:opacity-50"
+                          aria-label="Refresh commits"
+                        >
+                          <RefreshCw size={14} className={isRefreshingGit ? "animate-spin" : ""} />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setGitPanelOpen(false)}
+                        className="rounded p-1 text-maestro-muted transition-colors hover:bg-maestro-card hover:text-maestro-text"
+                        aria-label="Close git panel"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
 
-          {/* Bottom action bar */}
-          <div className="bg-maestro-bg">
-            <BottomBar
-              slotCount={activeTabSlotCount}
-              launchedCount={activeTabLaunchedCount}
-              onLaunchAll={() => {
-                if (!activeTabSessionsLaunched && activeTab) {
-                  // First enter grid view, then launch
-                  handleEnterGridView();
-                }
-                // Launching into a grid hidden behind the Board would look
-                // like the button did nothing, so the Board steps aside.
-                closeBoardView();
-                multiProjectRef.current?.launchAllInActiveProject();
-              }}
-              onNavigateToSession={(tabId, sessionId) => {
-                multiProjectRef.current?.navigateToSession(tabId, sessionId);
-              }}
-            />
+              <GitGraphPanel
+                open={gitPanelOpen}
+                onClose={() => setGitPanelOpen(false)}
+                repoPath={gitRepoPath ?? null}
+                currentBranch={currentBranch ?? null}
+                repositories={gitTargetTab?.repositories ?? []}
+                workspaceType={gitTargetTab?.workspaceType ?? "single-repo"}
+                onRepoChange={(path) => gitTargetTab && setSelectedRepo(gitTargetTab.id, path)}
+                activeTab={gitPanelTab}
+                onActiveTabChange={setGitPanelTab}
+                width={rightPanelWidth}
+                onResize={handleRightPanelResize}
+                eagleProjects={eagleView ? eagleProjects : undefined}
+                eagleIndex={clampedEagleGitIndex}
+                onEaglePrev={handleEagleGitPrev}
+                onEagleNext={handleEagleGitNext}
+              />
+            </div>
           </div>
         </div>
+        <WorkbenchDock
+          activePanel={utilityPanel}
+          onSelect={handleToggleUtilityPanel}
+          gitOpen={gitPanelOpen}
+          onToggleGit={handleToggleGitPanel}
+        />
       </div>
 
       {/* Cmd/Ctrl+P: fuzzy jump to any session or worktree */}

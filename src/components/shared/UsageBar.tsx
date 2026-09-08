@@ -48,9 +48,9 @@ export function UsageBar() {
   }
 
   return (
-    <div className="flex min-w-0 items-center gap-2">
+    <div className="flex min-w-0 flex-wrap items-center gap-2">
       <RefreshButton onClick={() => fetchUsage(true)} spinning={isLoading} />
-      <div className="flex min-w-0 items-center gap-3">
+      <div className="flex min-w-0 flex-wrap items-center gap-[18px]">
         {bars.map((bar) => (
           <Bar key={bar.label} bar={bar} />
         ))}
@@ -79,7 +79,7 @@ function Bar({ bar }: { bar: UsageWindowBar }) {
   const pct = clampPercent(bar.percent);
   const reset = formatResetTime(bar.resetsAt);
   return (
-    <div className="flex w-28 min-w-0 shrink flex-col gap-1">
+    <div className="flex w-[124px] min-w-0 shrink-0 flex-col gap-[5px] font-mono">
       <div className="flex min-w-0 items-baseline justify-between gap-1 text-[11px] leading-none">
         <span className="shrink-0 whitespace-nowrap text-maestro-muted/70">{bar.label}</span>
         {/* Truncates rather than nowraps: the budget window's detail
@@ -88,7 +88,7 @@ function Bar({ bar }: { bar: UsageWindowBar }) {
           {Math.round(pct)}%{bar.detail ? ` · ${bar.detail}` : ""}
         </span>
       </div>
-      <div className="h-2 overflow-hidden rounded-full bg-maestro-border/50">
+      <div className="h-[5px] overflow-hidden rounded-full bg-maestro-border">
         <div
           className={`h-full rounded-full transition-all duration-500 ${barColor(pct)}`}
           style={{ width: `${pct}%` }}
