@@ -40,3 +40,10 @@ User delegated design decisions and execution. Bounded redesign of the existing 
 - Independent reviewer rechecked the refinements and found no remaining Critical or Important issue in scope.
 - No browser surface is available and native UI automation is disabled. Visual layout, dragging, light/dark appearance and menus still require real-app confirmation; no screenshot-based sign-off claimed.
 - No dependencies, credentials, schemas, lockfiles or Rust source changed. NanoClaw was not changed by this redesign.
+
+## Integration
+
+- Final `npm run tauri build -- --bundles app`: exit 0. Locally merged `6157980` into `feat/control-door`; post-merge `npm test`: exit 0, 1,435 tests. No push.
+- Installed and restarted `/Applications/Vanguard.app` after confirming zero registered sessions. Local ad-hoc signing, installed signature verification and binary SHA-256 comparison passed (exit 0).
+- Previous image-enabled app preserved at `/Users/aoreilly/Library/Application Support/Vanguard-rollback.HqLr96/Vanguard.app`. No rollback files deleted.
+- Browser preview process stopped. Next: user confirms the installed layout, title dragging, menu visibility and light/dark appearance in their real app.
