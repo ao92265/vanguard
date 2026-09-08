@@ -27,6 +27,16 @@ pub struct Attachment {
     cleanup_requested: AtomicBool,
 }
 
+impl Attachment {
+    /// The SSH destination this image was staged on, or `None` for this machine.
+    ///
+    /// Taken from the target snapshot `save` made, so it answers where the file
+    /// went, not where the session is pointed now.
+    pub fn destination(&self) -> Option<String> {
+        self.target.ssh.clone()
+    }
+}
+
 pub struct SessionAttachmentService {
     targets: Mutex<HashMap<u32, Arc<Mutex<Target>>>>,
     files: Mutex<HashMap<String, Arc<Attachment>>>,

@@ -102,3 +102,18 @@ it("tells the terminal to stand its paste listener down while the sheet is up", 
   unmount();
   expect(onSheetOpenChange).toHaveBeenLastCalledWith(false);
 });
+
+it("does not offer delivery until the destination lookup has landed", async () => {
+  // A sheet opened here could only guess at the one fact it exists to report:
+  // the backend reads its own target when it stages.
+  vi.mocked(invoke).mockReturnValue(new Promise(() => {}));
+  render(<ImageDestination sessionId={7} />);
+  expect(screen.getByRole("button", { name: "Deliver image" })).toBeDisabled();
+});
+
+it("does not offer delivery when the destination lookup failed", async () => {
+  vi.mocked(invoke).mockRejectedValue("Session is gone");
+  render(<ImageDestination sessionId={7} />);
+  await screen.findByText("Images: destination unavailable");
+  expect(screen.getByRole("button", { name: "Deliver image" })).toBeDisabled();
+});

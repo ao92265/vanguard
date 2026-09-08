@@ -22,6 +22,17 @@ export async function spawnShell(cwd?: string, env?: Record<string, string>): Pr
   return invoke<number>("spawn_shell", { cwd: cwd ?? null, env: env ?? null });
 }
 
+/** What `save_pasted_image` did with one image. */
+export interface StagedImage {
+  /** `/tmp/maestro-image-<uuid>/image.<ext>`, or the same under the system temp dir. */
+  path: string;
+  /**
+   * The SSH destination the upload used, or null for this machine. Read from
+   * the snapshot the backend took, NOT from whatever the frontend last saw.
+   */
+  destination: string | null;
+}
+
 /**
  * Uploads an image to the session's execution host and pastes its path without submitting.
  *
@@ -31,17 +42,17 @@ export async function spawnShell(cwd?: string, env?: Record<string, string>): Pr
  * `JSON.stringify`'d, which turns each image byte into ~4 characters of decimal
  * text on the main thread. The media type rides along as a request header.
  *
- * Resolves with the staged path the backend pasted into the PTY. That path is
- * generated backend-side (`/tmp/maestro-image-<uuid>/image.<ext>`, or the same
- * name under the system temp dir when the session has no SSH destination), so
- * it is the only honest thing a delivery UI can show the user.
+ * Resolves with what the backend actually did: the staged path it pasted into
+ * the PTY, and the destination it used. Both are generated backend-side from
+ * the target snapshot `save()` took, so they are the only honest answer a
+ * delivery UI can give about where the user's image went.
  */
 export async function savePastedImage(
   data: Uint8Array,
   mediaType: string,
   sessionId: number,
-): Promise<string> {
-  return invoke<string>("save_pasted_image", data, {
+): Promise<StagedImage> {
+  return invoke<StagedImage>("save_pasted_image", data, {
     headers: { "media-type": mediaType, "session-id": String(sessionId) },
   });
 }

@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState } from "react";
-import { ImageDeliverySheet } from "./ImageDeliverySheet";
+import { ImageDeliverySheet, type ImageDestinationState } from "./ImageDeliverySheet";
 
 /**
  * The per-terminal image bar: where this session's images are staged, and the
@@ -63,6 +63,16 @@ export function ImageDestination({
   // A closing terminal must not leave the grid thinking a sheet is still up.
   useEffect(() => () => onSheetOpenChangeRef.current?.(false), []);
 
+  // `saved` is null in three different situations: no destination configured,
+  // the lookup still running, and the lookup rejected. Only the first is a
+  // place. Hand the sheet the difference rather than a bare null it would have
+  // to guess at.
+  const destinationState: ImageDestinationState = loaded
+    ? { known: true, ssh: saved }
+    : error
+      ? { known: false, reason: "unavailable", message: error }
+      : { known: false, reason: "loading" };
+
   return (
     <div className="flex shrink-0 items-center gap-2 border-b border-maestro-border px-2 text-xs text-maestro-muted">
       <details className="min-w-0 flex-1">
@@ -117,18 +127,23 @@ export function ImageDestination({
       <button
         ref={deliverRef}
         type="button"
+        // Same gate as Apply: until the lookup lands, this component does not
+        // know where the session's images go, and a sheet opened in that state
+        // could only guess at the one fact it exists to report.
+        disabled={!loaded}
+        title={loaded ? undefined : "Waiting for this session's image destination"}
         onClick={() => {
           returnFocus.current = true;
           setSheetOpen(true);
         }}
-        className="shrink-0 rounded border border-maestro-border px-2.5 py-1 text-[11.5px] font-medium text-maestro-muted transition-colors hover:border-maestro-accent/60 hover:text-maestro-text"
+        className="shrink-0 rounded border border-maestro-border px-2.5 py-1 text-[11.5px] font-medium text-maestro-muted transition-colors hover:border-maestro-accent/60 hover:text-maestro-text disabled:opacity-50 disabled:hover:border-maestro-border disabled:hover:text-maestro-muted"
       >
         Deliver image
       </button>
       {sheetOpen && (
         <ImageDeliverySheet
           sessionId={sessionId}
-          destination={saved}
+          destination={destinationState}
           onDestinationChange={(next) => {
             setSaved(next);
             setTarget(next ?? "");

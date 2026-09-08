@@ -185,6 +185,22 @@ describe("TerminalGrid session rail", () => {
     expect(useSessionStore.getState().sessions).toHaveLength(2);
   });
 
+  it("counts launched sessions, not the setup card sitting beside them", async () => {
+    const { view, handle, ids } = await renderLaunchedGridWith(1);
+    await act(async () => {
+      handle.zoomSession(ids[0]);
+    });
+    // A fresh setup slot is a pane, not a session. It still gets a row, so the
+    // user can reach it, but it must not be counted under a heading that says
+    // "Sessions".
+    await act(async () => {
+      handle.addSession();
+    });
+    const rail = view.getByRole("navigation", { name: "Sessions" });
+    expect(rail).toHaveTextContent("Sessions 1");
+    expect(view.getByRole("button", { name: "Switch to Terminal 1" })).toBeInTheDocument();
+  });
+
   it("keeps the split grid reachable from the rail", async () => {
     const { view, handle, ref, ids } = await renderLaunchedGridWith(2);
     await act(async () => {

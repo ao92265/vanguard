@@ -27,7 +27,11 @@ export function SessionRail({
   onNewTerminal,
   children,
 }: {
-  /** Panes listed in the rail. */
+  /**
+   * Launched sessions in the rail. Deliberately not the row count: an
+   * un-launched setup card is a pane, and gets a row, but calling it a session
+   * would overstate what is running.
+   */
   count: number;
   onExitZoom: () => void;
   /** Omitted when the grid is already at its session cap. */
@@ -40,8 +44,7 @@ export function SessionRail({
       className="flex w-[268px] shrink-0 flex-col gap-2 overflow-hidden py-4 pl-5 pr-1"
     >
       <div className="flex items-center gap-2 pb-0.5">
-        <span className={LABEL_CLASS}>Sessions</span>
-        <span className="font-mono text-[10.5px] font-semibold text-maestro-muted">{count}</span>
+        <span className={LABEL_CLASS}>Sessions {count}</span>
         <div className="flex-1" />
         {onNewTerminal && (
           <button

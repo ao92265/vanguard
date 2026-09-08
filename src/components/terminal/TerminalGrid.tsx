@@ -2541,7 +2541,7 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
         </div>
         {zoomActive && zoomedSlotId !== null && (
           <SessionRail
-            count={railSlots.length}
+            count={railSlots.filter((s) => s.sessionId !== null).length}
             onExitZoom={() => handleToggleZoom(zoomedSlotId)}
             onNewTerminal={canAddSession ? addSession : undefined}
           >

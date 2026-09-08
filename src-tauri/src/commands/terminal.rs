@@ -234,8 +234,10 @@ pub async fn kill_session(
 /// The backend revalidates the session and image destination before inserting
 /// the path, so a delayed upload cannot paste into a changed destination.
 ///
-/// Returns the staged path it pasted. The delivery sheet shows the user where
-/// the image actually landed, and the only place that is known is here.
+/// Returns the staged path it pasted AND the destination it staged on. Both
+/// come from the target snapshot this upload used, so the delivery sheet can
+/// tell the user where the image actually landed instead of guessing from
+/// whatever the frontend last saw.
 ///
 /// The bytes arrive as the raw IPC request body (`application/octet-stream`)
 /// rather than a JSON field: as JSON, Tauri renders every image byte as a
@@ -245,7 +247,7 @@ pub async fn kill_session(
 pub async fn save_pasted_image(
     request: tauri::ipc::Request<'_>,
     manager: State<'_, ProcessManager>,
-) -> Result<String, String> {
+) -> Result<StagedImage, String> {
     const MAX_IMAGE_SIZE: usize = crate::core::session_attachments::MAX_IMAGE_BYTES;
     let session_id: u32 = request
         .headers()
@@ -310,7 +312,19 @@ pub async fn save_pasted_image(
     if result.is_err() {
         service.remove(&image.path).await;
     }
-    result
+    result.map(|path| StagedImage {
+        path,
+        destination: image.destination(),
+    })
+}
+
+/// What one `save_pasted_image` call did: the staged path, and where it went.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StagedImage {
+    pub path: String,
+    /// SSH destination used by this upload, or `None` for this machine.
+    pub destination: Option<String>,
 }
 
 #[tauri::command]

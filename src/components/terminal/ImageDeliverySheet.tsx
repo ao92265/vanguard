@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { savePastedImage } from "@/lib/terminal";
+import { type StagedImage, savePastedImage } from "@/lib/terminal";
 
 /**
  * The image delivery sheet.
@@ -21,10 +21,20 @@ import { savePastedImage } from "@/lib/terminal";
 /** Matches `MAX_IMAGE_BYTES` in `src-tauri/src/core/session_attachments.rs`. */
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
+/**
+ * The session's image destination as the app actually knows it. Absence is a
+ * state of its own: a destination that has not loaded, or whose lookup failed,
+ * must never be rendered as a place.
+ */
+export type ImageDestinationState =
+  | { known: true; ssh: string | null }
+  | { known: false; reason: "loading" }
+  | { known: false; reason: "unavailable"; message: string };
+
 export interface ImageDeliverySheetProps {
   sessionId: number;
-  /** Saved image destination: an SSH alias/user@host, or null for this machine. */
-  destination: string | null;
+  /** Saved image destination for this session, and whether it is known at all. */
+  destination: ImageDestinationState;
   /** Fires when this sheet changes the session's destination, so the bar agrees. */
   onDestinationChange: (next: string | null) => void;
   onClose: () => void;
@@ -40,12 +50,34 @@ type Clipboard =
 /** Where a delivery attempt got to. */
 type Transfer =
   | { state: "idle" }
-  | { state: "sending"; startedWith: string | null }
-  | { state: "sent"; startedWith: string | null; driftedTo: string | null; path: string }
+  | { state: "sending" }
+  | {
+      state: "sent";
+      /** What the backend reports it did. The only authority on where the file is. */
+      staged: StagedImage;
+      /**
+       * The destination this sheet was showing when the button was pressed, or
+       * undefined when it was showing that it did not know. Compared with the
+       * backend's answer only to tell the user the two differed.
+       */
+      shown: string | null | undefined;
+    }
   | { state: "failed"; message: string };
 
-function destinationLabel(destination: string | null): string {
-  return destination ?? "this machine";
+/** A place the backend has named. Never used for a destination we do not have. */
+function placeLabel(ssh: string | null): string {
+  return ssh ?? "this machine";
+}
+
+/**
+ * What to print for the session's destination. An unloaded or failed lookup
+ * prints as the state it is in, never as a place: the backend reads its own
+ * target when it stages, so a frontend that has not loaded one knows nothing
+ * about where an image would go.
+ */
+function describeDestination(destination: ImageDestinationState): string {
+  if (destination.known) return placeLabel(destination.ssh);
+  return destination.reason === "loading" ? "still loading" : "not known";
 }
 
 /** Byte count in the unit a person would use for it. */
@@ -89,15 +121,17 @@ export function ImageDeliverySheet({
 }: ImageDeliverySheetProps) {
   const [clipboard, setClipboard] = useState<Clipboard>({ state: "reading" });
   const [transfer, setTransfer] = useState<Transfer>({ state: "idle" });
-  const [draft, setDraft] = useState(destination ?? "");
+  const knownSsh = destination.known ? destination.ssh : null;
+  const [draft, setDraft] = useState(knownSsh ?? "");
   const [savingDestination, setSavingDestination] = useState(false);
   const [destinationError, setDestinationError] = useState("");
   const dialogRef = useRef<HTMLDivElement>(null);
-  // The destination as it stands NOW, readable from inside a transfer that
-  // started before it changed. Without this the sheet would credit a finished
-  // transfer to whichever host happened to be selected when it landed.
-  const destinationRef = useRef(destination);
-  destinationRef.current = destination;
+  // What the sheet was SHOWING when a transfer started, readable from inside
+  // that transfer. It is only ever compared against the backend's answer, so
+  // that a difference can be reported; it is never itself reported as the
+  // place the image went.
+  const shownRef = useRef<string | null | undefined>(undefined);
+  shownRef.current = destination.known ? destination.ssh : undefined;
   // One delivery at a time, even if two clicks land in the same tick.
   const deliveringRef = useRef(false);
 
@@ -124,6 +158,17 @@ export function ImageDeliverySheet({
     dialogRef.current?.focus();
   }, []);
 
+  // Where this image is, or will be. Once the backend has answered, its answer
+  // wins over anything the frontend was showing, so the path panel and the
+  // sentence beside it can never describe two different machines.
+  const effective: ImageDestinationState =
+    transfer.state === "sent" ? { known: true, ssh: transfer.staged.destination } : destination;
+  const handoffSentence = !effective.known
+    ? "The agent is handed a path on whichever destination this session is set to."
+    : effective.ssh === null
+      ? "The image is written to a temporary directory on this machine, and that local path is what the agent is handed."
+      : `Bytes are sent to ${effective.ssh}. The path handed over is a file on ${effective.ssh}, not on this machine.`;
+
   const oversized = clipboard.state === "ready" && clipboard.size > MAX_IMAGE_BYTES;
   // A delivered image stays delivered: re-arming the button after a success
   // is how one clipboard image ends up staged twice, with two paths pasted.
@@ -139,17 +184,11 @@ export function ImageDeliverySheet({
     if (clipboard.state !== "ready" || deliveringRef.current) return;
     if (clipboard.size > MAX_IMAGE_BYTES) return;
     deliveringRef.current = true;
-    const startedWith = destinationRef.current;
-    setTransfer({ state: "sending", startedWith });
+    const shown = shownRef.current;
+    setTransfer({ state: "sending" });
     savePastedImage(clipboard.bytes, clipboard.mediaType, sessionId)
-      .then((path) => {
-        const now = destinationRef.current;
-        setTransfer({
-          state: "sent",
-          startedWith,
-          driftedTo: now === startedWith ? null : now,
-          path,
-        });
+      .then((staged) => {
+        setTransfer({ state: "sent", staged, shown });
       })
       .catch((reason) => {
         setTransfer({
@@ -237,12 +276,17 @@ export function ImageDeliverySheet({
           <div className="flex min-w-[260px] flex-1 flex-col gap-3">
             <span className={LABEL_CLASS}>Image destination</span>
             <div className="rounded-[10px] border border-maestro-border bg-maestro-card px-4 py-3">
-              <div className="font-mono text-xs text-maestro-text">
-                {destinationLabel(destination)}
+              <div
+                className={`font-mono text-xs ${destination.known ? "text-maestro-text" : "text-maestro-orange"}`}
+              >
+                {describeDestination(destination)}
               </div>
               <p className="mt-1 text-[11.5px] leading-relaxed text-maestro-muted">
-                Where this session stages images. It is the destination this app was told to write
-                to. Nothing here has checked it, and it is not an execution target.
+                {destination.known
+                  ? "Where this session stages images. It is the destination this app was told to write to. Nothing here has checked it, and it is not an execution target."
+                  : destination.reason === "loading"
+                    ? "This session's destination has not come back yet. The backend reads its own, so an image sent now still goes somewhere; this sheet just cannot say where until it lands."
+                    : `Could not read this session's destination: ${destination.message}. The backend reads its own, so an image sent now still goes somewhere; this sheet cannot say where until it lands.`}
               </p>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <label className="flex items-center gap-2 text-[11px] text-maestro-muted">
@@ -266,7 +310,7 @@ export function ImageDeliverySheet({
                 >
                   {savingDestination ? "Setting…" : "Set destination"}
                 </button>
-                <span className="text-[11px] text-maestro-muted">Empty means this machine.</span>
+                <span className="text-[11px] text-maestro-muted">Empty stages locally.</span>
               </div>
               {destinationError && (
                 <span role="alert" className="mt-2 block text-[11px] text-maestro-red">
@@ -278,7 +322,7 @@ export function ImageDeliverySheet({
             <span className={LABEL_CLASS}>Path handed to the agent</span>
             <div className="rounded-[10px] border border-maestro-border bg-maestro-card px-4 py-3 font-mono text-xs">
               {transfer.state === "sent" ? (
-                <span className="text-maestro-text">{transfer.path}</span>
+                <span className="text-maestro-text">{transfer.staged.path}</span>
               ) : (
                 <span className="text-maestro-muted">
                   Not staged yet. The backend generates the path and returns it.
@@ -297,7 +341,7 @@ export function ImageDeliverySheet({
                   ? `${formatBytes(clipboard.size)} against the 10 MB cap${oversized ? ", over it" : ""}`
                   : "10 MB cap on the image"}
               </li>
-              <li>Bytes are sent to the destination above. No local file path is handed over.</li>
+              <li>{handoffSentence}</li>
               <li>Staged files are kept for 24 hours, and removed when the session closes.</li>
               <li>The staged path is pasted into the terminal, not submitted.</li>
             </ul>
@@ -335,9 +379,9 @@ export function ImageDeliverySheet({
           <output className="mt-4 block text-[11.5px] text-maestro-text">
             {transfer.state === "sending"
               ? "Staging the image…"
-              : transfer.driftedTo !== null
-                ? `The destination changed to ${destinationLabel(transfer.driftedTo)} while this transfer was running. The image went to ${destinationLabel(transfer.startedWith)}.`
-                : `Staged on ${destinationLabel(transfer.startedWith)} and pasted into the terminal.`}
+              : transfer.shown !== undefined && transfer.shown !== transfer.staged.destination
+                ? `The destination changed while this transfer was running. The image went to ${placeLabel(transfer.staged.destination)}, not ${placeLabel(transfer.shown)}.`
+                : `Staged on ${placeLabel(transfer.staged.destination)} and pasted into the terminal.`}
           </output>
         )}
       </div>
