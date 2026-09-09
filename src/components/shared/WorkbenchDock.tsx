@@ -1,13 +1,16 @@
+import { GitBranch } from "lucide-react";
 import { HealthAttentionBadge } from "./HealthAttentionBadge";
-import type { UtilityPanelKind } from "./UtilityPanel";
+import { PANEL_META, type UtilityPanelKind } from "./UtilityPanel";
 
-const TOOLS: { panel: UtilityPanelKind; label: string; abbreviation: string }[] = [
-  { panel: "ai", label: "AI", abbreviation: "AI" },
-  { panel: "processes", label: "Processes", abbreviation: "Proc" },
-  { panel: "notes", label: "Notes", abbreviation: "Notes" },
-  { panel: "memory", label: "Memory", abbreviation: "Mem" },
-  { panel: "secondbrain", label: "Second Brain", abbreviation: "Brain" },
-];
+/**
+ * The dock is a 68px column, which is too narrow for a word, so the labels had
+ * become abbreviations ("Proc", "Mem", "Brain") that are no faster to read
+ * than a glyph and less certain. Icons say the same six things in the width
+ * available. The name is still there for anyone who wants it, in the tooltip
+ * and as the accessible name, so nothing about reaching a panel by name
+ * changes.
+ */
+const TOOLS: UtilityPanelKind[] = ["ai", "processes", "notes", "memory", "secondbrain"];
 
 export function WorkbenchDock({
   activePanel,
@@ -22,22 +25,31 @@ export function WorkbenchDock({
 }) {
   return (
     <aside aria-label="Utilities" className="workbench-dock">
-      <button type="button" aria-label="Git" aria-pressed={gitOpen} onClick={onToggleGit}>
-        Git
+      <button
+        type="button"
+        aria-label="Git"
+        title="Git"
+        aria-pressed={gitOpen}
+        onClick={onToggleGit}
+      >
+        <GitBranch size={16} aria-hidden="true" />
       </button>
-      {TOOLS.map(({ panel, label, abbreviation }) => (
-        <button
-          key={panel}
-          type="button"
-          aria-label={label}
-          title={label}
-          aria-pressed={activePanel === panel}
-          onClick={() => onSelect(panel)}
-        >
-          {abbreviation}
-          {(panel === "processes" || panel === "memory") && <HealthAttentionBadge area={panel} />}
-        </button>
-      ))}
+      {TOOLS.map((panel) => {
+        const { title, icon: Icon } = PANEL_META[panel];
+        return (
+          <button
+            key={panel}
+            type="button"
+            aria-label={title}
+            title={title}
+            aria-pressed={activePanel === panel}
+            onClick={() => onSelect(panel)}
+          >
+            <Icon size={16} aria-hidden="true" />
+            {(panel === "processes" || panel === "memory") && <HealthAttentionBadge area={panel} />}
+          </button>
+        );
+      })}
     </aside>
   );
 }

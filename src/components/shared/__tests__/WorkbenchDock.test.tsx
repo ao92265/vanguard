@@ -38,3 +38,21 @@ it("preserves distinct utility route identifiers", () => {
   expect(screen.getByRole("button", { name: "Notes" })).toHaveAttribute("aria-pressed", "true");
   expect(screen.getByRole("button", { name: "AI" })).toHaveAttribute("aria-pressed", "false");
 });
+
+/* The dock is a 68px column of six controls. Spelled out they were words
+   ("Proc", "Mem", "Brain") that abbreviate to something nobody reads faster
+   than a glyph, and abbreviating is what a narrow column forces. Icons carry
+   the same six meanings in the same width, and the name stays reachable
+   through the tooltip and the accessible name, which is what the other tests
+   here select on. */
+it("shows each utility as an icon rather than a word", () => {
+  render(<DockHarness />);
+  for (const name of ["Git", "AI", "Processes", "Notes", "Memory", "Second Brain"]) {
+    const button = screen.getByRole("button", { name });
+    expect(button.querySelector("svg")).not.toBeNull();
+    /* Letters, not "empty": a health badge legitimately puts a count inside
+       these buttons, and asserting emptiness would quietly stop testing the
+       moment one appeared. */
+    expect(button.textContent ?? "").not.toMatch(/[A-Za-z]/);
+  }
+});

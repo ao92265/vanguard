@@ -22,7 +22,13 @@ const NotepadPanel = lazy(() =>
 
 export type UtilityPanelKind = "memory" | "processes" | "notes" | "ai" | "secondbrain" | "launch";
 
-const PANEL_META: Record<UtilityPanelKind, { title: string; icon: React.ElementType }> = {
+/**
+ * The name and glyph for each panel. Exported because the dock that opens a
+ * panel now shows the same icon its header does: two lists would drift, and a
+ * dock button whose glyph does not match the panel it opens is worse than no
+ * glyph at all.
+ */
+export const PANEL_META: Record<UtilityPanelKind, { title: string; icon: React.ElementType }> = {
   memory: { title: "Memory", icon: Brain },
   processes: { title: "Processes", icon: Activity },
   notes: { title: "Notes", icon: StickyNote },

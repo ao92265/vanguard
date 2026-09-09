@@ -300,8 +300,11 @@
   .workbench-rail[data-expanded="true"] + .workbench-tools-surface {
     left: 232px;
   }
+  /* Sized for glyphs, not words. The buttons used to carry abbreviated
+     labels, which is what set the 68px column and the 58x30 button; an icon
+     needs a square target and the column can give the board back the rest. */
   .workbench-dock {
-    width: 68px;
+    width: 44px;
     flex: none;
     display: flex;
     flex-direction: column;
@@ -314,14 +317,14 @@
   }
   .workbench-dock button {
     position: relative;
-    width: 58px;
-    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
     flex: none;
-    border-radius: 7px;
+    border-radius: 8px;
     color: rgb(var(--maestro-muted));
-    font:
-      500 11px Inter,
-      sans-serif;
   }
   .workbench-dock button:hover {
     background: rgb(var(--maestro-card));
