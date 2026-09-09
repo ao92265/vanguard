@@ -515,6 +515,32 @@ describe("PreLaunchCard layout (design 1b)", () => {
     expect(project.queryAllByRole("button")).toHaveLength(0);
   });
 
+  it("filters a long repository list, and leaves a short one alone", () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({
+      path: `/tmp/repo-${i}`,
+      name: i === 0 ? "vanguard" : `repo-${i}`,
+      isGitRepo: true,
+      currentBranch: "main",
+      remoteUrl: null,
+    }));
+
+    render(<PreLaunchCard {...defaultProps} workspaceType="multi-repo" repositories={many} />);
+    const project = within(screen.getByRole("region", { name: "Project" }));
+    fireEvent.change(project.getByPlaceholderText("Filter projects..."), {
+      target: { value: "vang" },
+    });
+    expect(project.getByRole("button", { name: /vanguard/ })).toBeVisible();
+    expect(project.queryByRole("button", { name: /repo-4/ })).not.toBeInTheDocument();
+
+    cleanup();
+    render(<PreLaunchCard {...defaultProps} workspaceType="multi-repo" repositories={repos} />);
+    expect(
+      within(screen.getByRole("region", { name: "Project" })).queryByPlaceholderText(
+        "Filter projects...",
+      ),
+    ).not.toBeInTheDocument();
+  });
+
   it("lists the workspace repositories in the project column and switches on click", () => {
     const onRepoChange = vi.fn();
     render(

@@ -396,7 +396,13 @@ export function PreLaunchCard({
   const selectedRepo = repositories?.find((r) => r.path === selectedRepoPath);
   /* Whether the repository this session lands in is a checkout at all. In a
      multi-repo workspace the selected repo answers, not `isGitRepo`: that is
-     the result of the branch poll and lags a round behind the selection. */
+     the result of the branch poll and lags a round behind the selection.
+
+     This is NOT yet the only git-ness test in the file. The Working Directory
+     selector and `resolvedWorkingDirectory` still read the raw poll flag, so
+     they can disagree with this one for the length of a poll. Both belong
+     with the queued resolves-to defects, which want fixing at the source
+     rather than patched here. Do not assume this flag covers them. */
   const branchPickerIsGit = isMultiRepo ? Boolean(selectedRepo?.isGitRepo) : isGitRepo;
 
   // What the launch will actually do, read off the same fields the launch
@@ -1491,6 +1497,9 @@ export function PreLaunchCard({
   );
 }
 
+/** Above this many projects the column earns a filter box; below it, clutter. */
+const FILTER_PROJECTS_ABOVE = 8;
+
 /**
  * The pane's left column: which project this session lands in.
  *
@@ -1523,7 +1532,12 @@ function ProjectColumn({
    */
   currentBranch: string | null;
 }) {
+  const [filter, setFilter] = useState("");
   const path = selectedRepoPath || projectPath;
+  const needle = filter.trim().toLowerCase();
+  const shown = needle
+    ? (repositories ?? []).filter((r) => r.name.toLowerCase().includes(needle))
+    : (repositories ?? []);
   /* Trailing separators would otherwise make the name empty. */
   const name = path.replace(/\/+$/, "").split("/").pop() || path;
 
@@ -1537,31 +1551,49 @@ function ProjectColumn({
       </span>
 
       {isMultiRepo && repositories && repositories.length > 0 ? (
-        <div className="flex flex-col gap-1">
-          {repositories.map((repo) => {
-            const selected = repo.path === selectedRepoPath;
-            return (
-              <button
-                key={repo.path}
-                type="button"
-                aria-pressed={selected}
-                onClick={() => onRepoChange?.(repo.path)}
-                title={repo.path}
-                className={`flex flex-col items-start gap-0.5 rounded border px-3 py-2 text-left transition-colors ${
-                  selected
-                    ? "border-maestro-accent bg-maestro-card"
-                    : "border-transparent hover:border-maestro-border hover:bg-maestro-card/60"
-                }`}
-              >
-                <span className="w-full truncate text-sm text-maestro-text">{repo.name}</span>
-                <span className="w-full truncate font-mono text-[11px] text-maestro-muted">
-                  {repo.isGitRepo
-                    ? (repo.currentBranch ?? "no branch yet")
-                    : "not a git repository"}
-                </span>
-              </button>
-            );
-          })}
+        <div className="flex min-h-0 flex-col gap-2">
+          {/* The old repo tree inside the branch dropdown could be searched.
+              A workspace of a dozen nested checkouts needs that here now,
+              and a workspace of three does not. */}
+          {repositories.length > FILTER_PROJECTS_ABOVE && (
+            <input
+              type="text"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Filter projects..."
+              aria-label="Filter projects"
+              className="w-full rounded border border-maestro-border bg-maestro-card px-2 py-1.5 text-xs text-maestro-text outline-none transition-colors placeholder:text-maestro-muted/60 focus:border-maestro-accent"
+            />
+          )}
+          <div className="flex max-h-[46vh] flex-col gap-1 overflow-y-auto">
+            {shown.map((repo) => {
+              const selected = repo.path === selectedRepoPath;
+              return (
+                <button
+                  key={repo.path}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => onRepoChange?.(repo.path)}
+                  title={repo.path}
+                  className={`flex flex-col items-start gap-0.5 rounded border px-3 py-2 text-left transition-colors ${
+                    selected
+                      ? "border-maestro-accent bg-maestro-card"
+                      : "border-transparent hover:border-maestro-border hover:bg-maestro-card/60"
+                  }`}
+                >
+                  <span className="w-full truncate text-sm text-maestro-text">{repo.name}</span>
+                  <span className="w-full truncate font-mono text-[11px] text-maestro-muted">
+                    {repo.isGitRepo
+                      ? (repo.currentBranch ?? "no branch yet")
+                      : "not a git repository"}
+                  </span>
+                </button>
+              );
+            })}
+            {shown.length === 0 && (
+              <span className="px-1 py-2 text-xs text-maestro-muted">No project matches.</span>
+            )}
+          </div>
         </div>
       ) : (
         <div className="flex flex-col gap-1">
