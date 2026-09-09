@@ -114,7 +114,7 @@ describe("PreLaunchCard branch creation", () => {
     fireEvent.click(screen.getByTitle("Create branch without selecting"));
 
     await waitFor(() => {
-      expect(onCreateBranch).toHaveBeenCalledWith("feature/test", false);
+      expect(onCreateBranch).toHaveBeenCalledWith("feature/test", false, "/tmp/test-repo");
     });
     // onBranchChange should NOT be called by the "Create" button
     expect(defaultProps.onBranchChange).not.toHaveBeenCalled();
@@ -132,7 +132,7 @@ describe("PreLaunchCard branch creation", () => {
     fireEvent.click(screen.getByTitle("Create branch and select it"));
 
     await waitFor(() => {
-      expect(onCreateBranch).toHaveBeenCalledWith("feature/select", false);
+      expect(onCreateBranch).toHaveBeenCalledWith("feature/select", false, "/tmp/test-repo");
     });
     await waitFor(() => {
       expect(defaultProps.onBranchChange).toHaveBeenCalledWith("feature/select");
@@ -493,6 +493,17 @@ describe("PreLaunchCard layout (design 1b)", () => {
     vi.clearAllMocks();
   });
 
+  it("states the checkout's own branch, not the branch this session will switch to", () => {
+    /* The picked branch belongs to the session, and can even be a name that
+       does not exist yet. Under "Project" a reader takes the value for the
+       repository's own state, so it has to be HEAD. */
+    render(<PreLaunchCard {...defaultProps} slot={makeSlot({ branch: "develop" })} />);
+
+    const project = within(screen.getByRole("region", { name: "Project" }));
+    expect(project.getByText("main")).toBeVisible();
+    expect(project.queryByText("develop")).not.toBeInTheDocument();
+  });
+
   it("names the one project instead of offering a list of one", () => {
     render(<PreLaunchCard {...defaultProps} />);
 
@@ -593,5 +604,46 @@ describe("PreLaunchCard branch picker (design 1b)", () => {
     openPicker();
 
     expect(screen.getByText("Create New Branch")).toBeVisible();
+  });
+
+  it("asks the selected repository whether it is a checkout, not the lagging poll", () => {
+    /* The poll's flag is initialised true and answers a round behind the
+       selection, so on switching to a non-git folder it still says "git" for
+       one window. Both the picker and the resolves-to row must ignore it. */
+    render(
+      <PreLaunchCard
+        {...multiProps}
+        isGitRepo={true}
+        repositories={[
+          {
+            path: "/tmp/notes",
+            name: "notes",
+            isGitRepo: false,
+            currentBranch: null,
+            remoteUrl: null,
+          },
+        ]}
+        selectedRepoPath="/tmp/notes"
+      />,
+    );
+
+    expect(screen.getByText("Not a Git repository")).toBeVisible();
+    expect(
+      within(screen.getByRole("region", { name: "Resolves to" })).getByText("not a git repository"),
+    ).toBeVisible();
+  });
+
+  it("creates a branch in the repository the project column has selected", async () => {
+    const onCreateBranch = vi.fn().mockResolvedValue(undefined);
+    render(<PreLaunchCard {...multiProps} onCreateBranch={onCreateBranch} />);
+    openPicker();
+
+    fireEvent.click(screen.getByText("Create New Branch"));
+    fireEvent.change(screen.getByPlaceholderText("feature/my-branch"), {
+      target: { value: "feat/x" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => expect(onCreateBranch).toHaveBeenCalledWith("feat/x", false, "/tmp/api"));
   });
 });

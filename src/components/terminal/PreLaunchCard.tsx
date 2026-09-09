@@ -469,8 +469,8 @@ export function PreLaunchCard({
             isMultiRepo={Boolean(isMultiRepo)}
             repositories={repositories}
             onRepoChange={onRepoChange}
-            isGitRepo={isGitRepo || Boolean(isMultiRepo && selectedRepo?.isGitRepo)}
-            branch={resolvedBranch}
+            isGitRepo={branchPickerIsGit}
+            currentBranch={currentBranch?.name ?? null}
           />
 
           <section
@@ -646,7 +646,11 @@ export function PreLaunchCard({
                                       }
                                       setIsCreatingBranch(true);
                                       setBranchCreateError(null);
-                                      onCreateBranch(trimmed, false)
+                                      onCreateBranch(
+                                        trimmed,
+                                        false,
+                                        selectedRepoPath ?? projectPath,
+                                      )
                                         .then(() => {
                                           onBranchChange(trimmed);
                                           setNewBranchName("");
@@ -689,7 +693,11 @@ export function PreLaunchCard({
                                       }
                                       setIsCreatingBranch(true);
                                       setBranchCreateError(null);
-                                      onCreateBranch(trimmed, false)
+                                      onCreateBranch(
+                                        trimmed,
+                                        false,
+                                        selectedRepoPath ?? projectPath,
+                                      )
                                         .then(() => {
                                           setNewBranchName("");
                                           setShowBranchCreate(false);
@@ -723,7 +731,11 @@ export function PreLaunchCard({
                                       }
                                       setIsCreatingBranch(true);
                                       setBranchCreateError(null);
-                                      onCreateBranch(trimmed, false)
+                                      onCreateBranch(
+                                        trimmed,
+                                        false,
+                                        selectedRepoPath ?? projectPath,
+                                      )
                                         .then(() => {
                                           onBranchChange(trimmed);
                                           setNewBranchName("");
@@ -970,7 +982,7 @@ export function PreLaunchCard({
             )}
 
             {/* MCP Servers Selector */}
-            <div id={`advanced-${slot.id}`} className="relative" ref={mcpDropdownRef}>
+            <div className="relative" ref={mcpDropdownRef}>
               <label
                 htmlFor="prelaunch-mcp-servers"
                 className="mb-1.5 block font-mono text-[10.5px] font-semibold uppercase tracking-[0.07em] text-maestro-muted"
@@ -1100,7 +1112,7 @@ export function PreLaunchCard({
             </div>
 
             {/* Plugins & Skills Selector */}
-            <div id={`integrations-${slot.id}`} className="relative" ref={pluginsSkillsDropdownRef}>
+            <div className="relative" ref={pluginsSkillsDropdownRef}>
               <label
                 htmlFor="prelaunch-plugins-skills"
                 className="mb-1.5 block font-mono text-[10.5px] font-semibold uppercase tracking-[0.07em] text-maestro-muted"
@@ -1454,15 +1466,9 @@ export function PreLaunchCard({
                   they are selectable. The workspace root is prepended as the first
                   repository and is the default selection, so guarding on
                   `isMultiRepo` alone described a branch on first open of every
-                  multi-repo workspace, not in some edge case. The selected repo now
-                  answers, the same test the picker above uses.
-
-                  Note the OR still lets a stale `isGitRepo` win: it is the result of
-                  the branch poll and lags one round behind the selection, so for that
-                  window this can pass on the previous repository's answer. That is
-                  the same unflushed-poll problem as the branch value itself, and it
-                  wants fixing in one place rather than patched here. */}
-              {isGitRepo || (isMultiRepo && selectedRepo?.isGitRepo)
+                  multi-repo workspace, not in some edge case. This reads the one
+                  flag the picker reads, so the two can never disagree. */}
+              {branchPickerIsGit
                 ? (resolvedBranch ?? "resolved at launch")
                 : "not a git repository"}
             </ResolveRow>
@@ -1501,7 +1507,7 @@ function ProjectColumn({
   repositories,
   onRepoChange,
   isGitRepo,
-  branch,
+  currentBranch,
 }: {
   projectPath: string;
   selectedRepoPath?: string;
@@ -1509,8 +1515,13 @@ function ProjectColumn({
   repositories?: RepositoryInfo[];
   onRepoChange?: (repoPath: string) => void;
   isGitRepo: boolean;
-  /** The polled branch, or null while the poll has not answered yet. */
-  branch: string | null;
+  /**
+   * The repository's own HEAD, or null while the poll has not answered. NOT
+   * the branch this session will land on: that is the user's pick, it can be
+   * a name that does not exist yet, and under "Project" a reader would take
+   * it for the checkout's own state.
+   */
+  currentBranch: string | null;
 }) {
   const path = selectedRepoPath || projectPath;
   /* Trailing separators would otherwise make the name empty. */
@@ -1559,7 +1570,7 @@ function ProjectColumn({
             {path}
           </span>
           <span className="mt-2 font-mono text-[11px] leading-relaxed text-maestro-muted">
-            {isGitRepo ? (branch ?? "branch resolved at launch") : "not a git repository"}
+            {isGitRepo ? (currentBranch ?? "branch resolved at launch") : "not a git repository"}
           </span>
         </div>
       )}

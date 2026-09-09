@@ -562,10 +562,10 @@ describe("BoardView", () => {
 
     expect(screen.getByText("FACTORY STALE")).toBeInTheDocument();
   });
-  it("makes each screen title a heading, at the level its nesting gives it", () => {
+  it("titles each screen once, in the shared header", () => {
     // The Board and the Ledger are one overlay with one header, so the header
-    // title is the page's h1 on both faces. The ledger section sits under that
-    // header with its own title, so it is an h2 rather than a second h1.
+    // title is the page's h1 on both faces, and nothing below it repeats that
+    // title as a second heading.
     useSessionStore.setState({ sessions: [session(1, "Working")] });
     useWorkspaceStore.setState({ tabs: [tab()] });
 
