@@ -9,6 +9,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { quoteShellArgument, type ShellFamily } from "@/lib/shellEscape";
 import { forgetTmuxSession, killTmuxSession, tmuxSessionFor } from "@/lib/tmux";
+import { useTmuxOrphanStore } from "@/stores/useTmuxOrphanStore";
 import type { BackendCapabilities, BackendType } from "./terminalTheme";
 
 /**
@@ -188,21 +189,32 @@ export async function killSession(sessionId: number): Promise<void> {
     tmuxFailure = error;
   }
 
+  /* Reported before anything else can go wrong, and reported rather than
+     only thrown. Six of the seven close paths are `.catch(console.error)` and
+     then drop the row, so a throw alone reaches nobody: the agent would run
+     on, detached, with its only trace in a console he never opens. */
+  const orphanMessage = tmuxFailure
+    ? `The terminal closed, but its tmux session ${tmuxName} is still running: ${
+        tmuxFailure instanceof Error ? tmuxFailure.message : String(tmuxFailure)
+      }`
+    : null;
+  if (orphanMessage) useTmuxOrphanStore.getState().report(orphanMessage);
+
   /* The terminal closes either way: an unkillable tmux session must not make
      the pane unclosable too. */
-  await invoke("kill_session", { sessionId });
-
-  /* Raised, not logged. The backend already answers "already gone" with
-     success, so anything that failed is a tmux session still running an
-     agent. Swallowing it let Stop All clear the rows and report a clean stop
-     while the work carried on, detached. */
-  if (tmuxFailure) {
-    throw new Error(
-      `The terminal closed, but its tmux session ${tmuxName} is still running: ${
-        tmuxFailure instanceof Error ? tmuxFailure.message : String(tmuxFailure)
-      }`,
-    );
+  try {
+    await invoke("kill_session", { sessionId });
+  } catch (error) {
+    /* Both halves failing must not lose the tmux half. Rejecting with the PTY
+       error alone would drop the one fact worth carrying: something is still
+       running. */
+    if (orphanMessage) throw new Error(`${orphanMessage} (closing the terminal also failed)`);
+    throw error;
   }
+
+  /* Thrown as well as reported, so a caller that does want to react still
+     can. Stop All is the one that does. */
+  if (orphanMessage) throw new Error(orphanMessage);
 }
 
 /** AI mode variants matching the backend enum. */

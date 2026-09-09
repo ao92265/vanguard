@@ -38,7 +38,7 @@ describe("tmux names", () => {
   });
 
   it("says which session a launched tmux session belongs to", () => {
-    expect(newTmuxSessionName(12)).toMatch(/^vanguard-12-[0-9a-f]{6}$/);
+    expect(newTmuxSessionName(12)).toMatch(/^vanguard-12-[0-9a-f]{16}$/);
   });
 
   /* THE ONE THAT MATTERS. Session ids come from an in-process counter that

@@ -240,7 +240,7 @@ describe("TerminalGrid pending samurai launch", () => {
     /* No `-A`. That flag joins a session already carrying the name instead
        of failing, and ids restart at 1 every app launch, so `-A` is what
        would type this command line into last night's still-running agent. */
-    expect(typed[0]).toMatch(/^tmux new-session -s vanguard-\d+-[0-9a-f]{6}\r$/);
+    expect(typed[0]).toMatch(/^tmux new-session -s vanguard-\d+-[0-9a-f]{16}\r$/);
     expect(typed[0]).not.toContain("-A");
     expect(typed.slice(1).join("\n")).toContain("claude");
   });

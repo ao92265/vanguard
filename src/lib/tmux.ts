@@ -30,7 +30,7 @@ export async function listTmuxSessions(): Promise<TmuxSession[]> {
  * a name nothing else holds.
  */
 export function newTmuxSessionName(sessionId: number): string {
-  const bytes = new Uint8Array(3);
+  const bytes = new Uint8Array(8);
   crypto.getRandomValues(bytes);
   const suffix = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
   return `vanguard-${sessionId}-${suffix}`;

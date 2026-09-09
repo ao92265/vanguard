@@ -852,18 +852,20 @@ mod tests {
     use portable_pty::CommandBuilder;
 
     // A session shell must not inherit the markers of whatever Maestro itself
-    // was launched from. `tmux new-session` refuses to nest, so a session
-    // started from a Maestro that is running inside tmux would never get its
-    // own tmux session and would die with the app.
+    // was launched from. `tmux new-session` refuses to nest ("sessions should
+    // be nested with care, unset $TMUX to force"), so a session started from a
+    // Maestro that is running inside tmux would never get its own tmux session
+    // and would die with the app.
+    //
+    // The markers are set on the builder rather than on this process: mutating
+    // the environment inside a parallel test binary races every other test
+    // that reads it, and leaves the value set for everything that runs after.
     #[test]
-    fn session_shell_does_not_inherit_tmux_markers() {
-        std::env::set_var("TMUX", "/private/tmp/tmux-502/default,12479,19");
-        std::env::set_var("TMUX_PANE", "%19");
+    fn session_shell_does_not_inherit_nesting_markers() {
         let mut cmd = CommandBuilder::new("/bin/sh");
-        assert!(
-            cmd.get_env("TMUX").is_some(),
-            "precondition: the builder should start with the parent's TMUX"
-        );
+        cmd.env("TMUX", "/private/tmp/tmux-502/default,12479,19");
+        cmd.env("TMUX_PANE", "%19");
+        cmd.env("CLAUDECODE", "1");
 
         strip_nesting_markers(&mut cmd);
 
@@ -875,17 +877,10 @@ mod tests {
             cmd.get_env("TMUX_PANE").is_none(),
             "TMUX_PANE must not reach the session shell"
         );
-    }
-
-    #[test]
-    fn session_shell_does_not_inherit_claude_code_marker() {
-        std::env::set_var("CLAUDECODE", "1");
-        let mut cmd = CommandBuilder::new("/bin/sh");
-        assert!(cmd.get_env("CLAUDECODE").is_some(), "precondition");
-
-        strip_nesting_markers(&mut cmd);
-
-        assert!(cmd.get_env("CLAUDECODE").is_none());
+        assert!(
+            cmd.get_env("CLAUDECODE").is_none(),
+            "CLAUDECODE must not reach the session shell"
+        );
     }
 
     #[test]

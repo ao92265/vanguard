@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { killSession } from "@/lib/terminal";
 import { forgetTmuxSession, rememberTmuxSession } from "@/lib/tmux";
+import { useTmuxOrphanStore } from "@/stores/useTmuxOrphanStore";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
@@ -12,6 +13,7 @@ describe("killSession", () => {
     invoked.mockReset();
     invoked.mockResolvedValue(undefined);
     forgetTmuxSession(7);
+    useTmuxOrphanStore.setState({ orphans: [] });
   });
 
   /* Killing the PTY signals its process group, which under tmux is only the
@@ -79,5 +81,49 @@ describe("killSession", () => {
     await killSession(7);
 
     expect(invoked.mock.calls.map(([command]) => command)).not.toContain("kill_tmux_session");
+  });
+});
+
+/* Throwing is not enough on its own. Five of the seven close paths are
+   `.catch(console.error)` and `useWorkspaceStore` logs each rejection, so the
+   throw reaches nobody on six of them: the pane vanishes, the row is dropped
+   and the agent runs on with its only trace in a console. */
+describe("reporting a tmux session that would not die", () => {
+  beforeEach(() => {
+    invoked.mockReset();
+    invoked.mockResolvedValue(undefined);
+    forgetTmuxSession(7);
+    useTmuxOrphanStore.setState({ orphans: [] });
+  });
+
+  it("reports it, not only to whichever caller happened to listen", async () => {
+    rememberTmuxSession(7, "vanguard-7-a1b2c3d4e5f60718");
+    invoked.mockImplementation((command: string) =>
+      command === "kill_tmux_session" ? Promise.reject(new Error("wedged")) : Promise.resolve(),
+    );
+
+    await expect(killSession(7)).rejects.toThrow();
+
+    const orphans = useTmuxOrphanStore.getState().orphans;
+    expect(orphans).toHaveLength(1);
+    expect(orphans[0]).toContain("vanguard-7-a1b2c3d4e5f60718");
+  });
+
+  it("says nothing when the close went cleanly", async () => {
+    rememberTmuxSession(7, "vanguard-7-a1b2c3d4e5f60718");
+
+    await killSession(7);
+
+    expect(useTmuxOrphanStore.getState().orphans).toEqual([]);
+  });
+
+  /* Both halves failing must not lose the tmux half: the PTY error alone
+     would drop the one fact worth carrying, that something is still running. */
+  it("keeps the tmux failure when closing the terminal fails too", async () => {
+    rememberTmuxSession(7, "vanguard-7-a1b2c3d4e5f60718");
+    invoked.mockRejectedValue(new Error("session 7 not found"));
+
+    await expect(killSession(7)).rejects.toThrow(/vanguard-7-a1b2c3d4e5f60718/);
+    expect(useTmuxOrphanStore.getState().orphans[0]).toContain("vanguard-7-a1b2c3d4e5f60718");
   });
 });

@@ -978,6 +978,18 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
       const slot = slotsRef.current.find((s) => s.id === slotId);
       if (!slot || slot.sessionId !== null) return;
 
+      /* Refuse an unattachable name HERE, before a worktree, a PTY, a session
+         row or a successor registration exists. Checked at the point of use
+         it was still a refusal, but "nothing was launched" would have been a
+         lie: a real git worktree and a live shell were already sitting there.
+         Both facts this needs are known now. */
+      if (slot.attachTmux && !tmuxAttachCommand(slot.attachTmux)) {
+        setError(
+          `Could not attach to the tmux session "${slot.attachTmux}": its name is not one Vanguard will put on a command line. Nothing was launched.`,
+        );
+        return;
+      }
+
       try {
         // Save branch config before launching (ensures it's persisted)
         if (effectiveRepoPath && slot.branch) {
@@ -1297,13 +1309,9 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
                  to: `attachCommand ?? launchLine?.command` turned a documented
                  refusal into a fallback that ran a full agent, with the slot's
                  branch and working directory, in a pane the confirmation
-                 screen had just told him those settings did not apply to. */
-              if (slot.attachTmux && !attachCommand) {
-                setError(
-                  `Could not attach to the tmux session "${slot.attachTmux}": its name is not one Vanguard will put on a command line. Nothing was launched.`,
-                );
-                return;
-              }
+                 screen had just told him those settings did not apply to. The
+                 refusal itself now happens at the top of this function, before
+                 anything exists to leave behind. */
               const cliCommand = attachCommand ?? launchLine?.command ?? null;
               /* Nothing to type is not the same as typing nothing: without
                  this the launch wrote the literal string "null" into the
