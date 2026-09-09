@@ -8,6 +8,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { quoteShellArgument, type ShellFamily } from "@/lib/shellEscape";
+import { tmuxNameForSession } from "@/lib/tmux";
 import type { BackendCapabilities, BackendType } from "./terminalTheme";
 
 /**
@@ -156,8 +157,31 @@ export async function resizePty(sessionId: number, rows: number, cols: number): 
   return invoke("resize_pty", { sessionId, rows, cols });
 }
 
-/** Terminates the backend PTY process and cleans up the session. */
+/**
+ * Terminates the backend PTY process and cleans up the session, and ends the
+ * tmux session it may have been launched into.
+ *
+ * The tmux half is not optional and not conditional. Killing the PTY signals
+ * its process group, which under tmux is only the client: the agent would
+ * keep running inside the tmux server with nothing on screen showing it, and
+ * Stop All would report success while every agent carried on. The name is
+ * derived from the session id rather than stored, so this works after a
+ * restart, and a session that was never launched into tmux, or has already
+ * gone, is a no-op rather than a failure.
+ *
+ * Every close path goes through here on purpose. Doing it at the call sites
+ * would leave whichever one nobody remembered orphaning agents.
+ */
 export async function killSession(sessionId: number): Promise<void> {
+  /* The agent goes first: once the PTY is gone there is no handle left, and
+     an orphan is worse than a redundant call. A failure here must not stop
+     the close, or an unkillable tmux session would make the terminal
+     unclosable too. */
+  try {
+    await invoke("kill_tmux_session", { name: tmuxNameForSession(sessionId) });
+  } catch (error) {
+    console.error("[tmux] Could not end the session's tmux session:", error);
+  }
   return invoke("kill_session", { sessionId });
 }
 

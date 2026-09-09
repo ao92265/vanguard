@@ -45,3 +45,61 @@ export function isSafeTmuxName(name: string): boolean {
 export function tmuxAttachCommand(name: string): string | null {
   return isSafeTmuxName(name) ? `tmux attach -t ${name.trim()}` : null;
 }
+
+/**
+ * The line that puts a launch inside tmux: attach to that session if it
+ * somehow exists, otherwise create it. Typed into the shell before the agent
+ * command, so the agent ends up running inside tmux and survives the app
+ * closing.
+ */
+export function tmuxLaunchCommand(sessionId: number): string {
+  return `tmux new-session -A -s ${tmuxNameForSession(sessionId)}`;
+}
+
+/** Whether tmux is installed at all. An empty session list cannot answer it. */
+export async function tmuxAvailable(): Promise<boolean> {
+  try {
+    return await invoke<boolean>("tmux_available");
+  } catch {
+    return false;
+  }
+}
+
+/** Ends a tmux session by name. A name that is already gone is success. */
+export async function killTmuxSession(name: string): Promise<void> {
+  await invoke("kill_tmux_session", { name });
+}
+
+/**
+ * Waits until tmux reports a session by that name, or gives up.
+ *
+ * The launcher types the tmux line and then the agent command. Typing the
+ * second into a shell that is still becoming tmux loses it, so this is a real
+ * check rather than a pause and a hope. Returns whether the session appeared:
+ * the caller has to tell him when it did not, because the work then runs
+ * outside tmux and dies with the app.
+ */
+export async function waitForTmuxSession(
+  name: string,
+  { timeoutMs = 3000, everyMs = 100 } = {},
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const sessions = await listTmuxSessions().catch(() => []);
+    if (sessions.some((session) => session.name === name)) return true;
+    await new Promise((resolve) => setTimeout(resolve, everyMs));
+  }
+  return false;
+}
+
+/**
+ * The tmux line to type before the agent command, or null when there should
+ * not be one.
+ *
+ * Null while attaching is the whole point: the pane is about to join an
+ * existing tmux session, and creating one first would nest tmux inside tmux,
+ * which tmux itself refuses.
+ */
+export function tmuxPreLaunchLine(attaching: boolean, sessionId: number): string | null {
+  return attaching ? null : tmuxLaunchCommand(sessionId);
+}

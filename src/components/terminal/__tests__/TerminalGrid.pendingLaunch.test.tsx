@@ -56,6 +56,19 @@ vi.mock("@/lib/terminal", async (importOriginal) => {
   };
 });
 
+/* tmux is off in most of these: they are about what gets typed on the launch
+   line, and the tmux wrapper is asserted on its own below. A launch on a
+   machine without tmux behaves exactly as it always did. */
+vi.mock("@/lib/tmux", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/tmux")>();
+  return {
+    ...actual,
+    tmuxAvailable: vi.fn(async () => false),
+    waitForTmuxSession: vi.fn(async () => true),
+    listTmuxSessions: vi.fn(async () => []),
+  };
+});
+
 vi.mock("@/lib/mcp", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/mcp")>();
   return {
@@ -201,6 +214,31 @@ describe("TerminalGrid pending samurai launch", () => {
     shellFamilyMock.mockClear();
     useSessionStore.setState({ sessions: [], samuraiBySessionId: {}, parkedSessionIds: [] });
     usePendingLaunchStore.setState({ pending: [] });
+  });
+
+  /* Alex asked for tmux on every launch path, automated ones included, so an
+     overnight run survives Vanguard closing like anything else. The tmux line
+     goes first and the agent command follows it, inside. */
+  it("puts an automated launch inside tmux, then types the agent command into it", async () => {
+    const tmux = await import("@/lib/tmux");
+    vi.mocked(tmux.tmuxAvailable).mockResolvedValueOnce(true);
+
+    usePendingLaunchStore.getState().request({
+      tabId: "tab-1",
+      mode: "Claude",
+      resumeSessionId: null,
+      workingDirOverride: WORKTREE,
+      branch: null,
+      customName: "samurai gen-1 77-78",
+      samurai: { project: "C:/proj", epic: "77, 78", generation: 1, model: "claude-opus-5" },
+    });
+
+    render(<TerminalGrid projectPath="C:/proj" tabId="tab-1" isActive />);
+
+    await waitFor(() => expect(writeStdinMock.mock.calls.length).toBeGreaterThan(1));
+    const typed = writeStdinMock.mock.calls.map((call) => String(call[1]));
+    expect(typed[0]).toContain("tmux new-session -A -s vanguard-");
+    expect(typed.slice(1).join("\n")).toContain("claude");
   });
 
   it("launches a queued samurai claim in its worktree, supervised, on the mount commit", async () => {

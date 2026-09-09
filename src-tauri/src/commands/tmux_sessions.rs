@@ -108,6 +108,57 @@ pub async fn list_tmux_sessions() -> Result<Vec<TmuxSession>, String> {
     Ok(parse_sessions(&String::from_utf8_lossy(&output.stdout)))
 }
 
+/// Whether tmux is installed. An empty session list cannot answer this: no
+/// server running and no tmux at all look identical from `list-sessions`, and
+/// the launcher must not wrap a command in a binary that is not there.
+#[tauri::command]
+pub async fn tmux_available() -> bool {
+    tokio::process::Command::new("tmux")
+        .arg("-V")
+        .output()
+        .await
+        .map(|out| out.status.success())
+        .unwrap_or(false)
+}
+
+/// Ends a tmux session by name.
+///
+/// Closing a Maestro session kills the PTY's process group, which under tmux
+/// is only the client: the agent would keep running inside the server with
+/// nothing on screen showing it, and Stop All would report success while
+/// every agent carried on. So closing calls this too.
+///
+/// A name that is not there is success, not a failure. The caller cannot know
+/// whether a given session was launched into tmux without storing that, and
+/// asking tmux to end something already gone is exactly the no-op it should
+/// be.
+#[tauri::command]
+pub async fn kill_tmux_session(name: String) -> Result<(), String> {
+    let safe = safe_session_name(&name).ok_or_else(|| "That is not a tmux session name.".to_string())?;
+    match tokio::process::Command::new("tmux")
+        .args(["kill-session", "-t", &safe])
+        .output()
+        .await
+    {
+        // tmux absent means there is nothing running to end.
+        Err(_) => Ok(()),
+        Ok(output) if output.status.success() => Ok(()),
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
+            /* "can't find session" and "no server running" both mean the work
+               is already gone, which is the state the caller wanted. */
+            if stderr.contains("can't find session")
+                || stderr.contains("no server running")
+                || stderr.contains("session not found")
+            {
+                Ok(())
+            } else {
+                Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

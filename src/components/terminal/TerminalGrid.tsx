@@ -71,7 +71,13 @@ import {
   writeStdin,
 } from "@/lib/terminal";
 import { terminalArmInitialPrompt } from "@/lib/terminalPrompt";
-import { tmuxAttachCommand } from "@/lib/tmux";
+import {
+  tmuxAttachCommand,
+  tmuxAvailable,
+  tmuxNameForSession,
+  tmuxPreLaunchLine,
+  waitForTmuxSession,
+} from "@/lib/tmux";
 import { useProjectColors } from "@/lib/useProjectColors";
 import { cleanupSessionWorktree, prepareSessionWorktree } from "@/lib/worktreeManager";
 import { useActivityStore } from "@/stores/useActivityStore";
@@ -1326,6 +1332,35 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
                   );
                 } catch (err) {
                   console.error("[InitialPrompt] Failed to arm the initial prompt:", err);
+                }
+              }
+
+              /* Every launch goes into tmux, so the work survives Vanguard
+                 closing and can be reached from any terminal. Attaching is
+                 already inside tmux, and a machine without tmux is left
+                 alone rather than handed a command that would not run.
+
+                 Two typed lines rather than `tmux new-session <command>`:
+                 quoting an agent command line into tmux's own parser is the
+                 fragile path, and this one has no quoting at all. The wait
+                 is a real check that the session exists, not a pause and a
+                 hope: typing the agent command into a shell that is still
+                 becoming tmux would lose it. */
+              const tmuxLine = tmuxPreLaunchLine(Boolean(attachCommand), sessionId);
+              if (tmuxLine && (await tmuxAvailable())) {
+                try {
+                  await writeStdin(sessionId, `${tmuxLine}\r`);
+                  if (!(await waitForTmuxSession(tmuxNameForSession(sessionId)))) {
+                    /* Surfaced, not swallowed: the command below still runs,
+                       so the work happens, but it is NOT in tmux and will die
+                       with the app. Saying nothing would leave him believing
+                       otherwise. */
+                    setError(
+                      "This session did not start inside tmux, so it will not survive Vanguard closing.",
+                    );
+                  }
+                } catch (err) {
+                  console.error("[tmux] Could not start the session inside tmux:", err);
                 }
               }
 
