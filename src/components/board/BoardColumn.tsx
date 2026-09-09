@@ -33,9 +33,12 @@ export function BoardColumn({
 }) {
   return (
     <section className="flex min-h-0 min-w-0 flex-col" aria-label={title}>
-      <div className="flex min-h-[26px] items-center gap-2 px-1 pb-[10px]">
+      {/* Everything here used to refuse to shrink, so a long note ran out of
+          the column and printed over the next column's title. The note gives
+          way first, then the title truncates. */}
+      <div className="flex min-h-[26px] items-center gap-2 overflow-hidden px-1 pb-[10px]">
         <span className={`h-[7px] w-[7px] shrink-0 rounded-full ${dotClass}`} />
-        <h2 className="shrink-0 truncate font-mono text-[11px] font-semibold uppercase tracking-[0.07em] text-maestro-muted">
+        <h2 className="min-w-0 truncate font-mono text-[11px] font-semibold uppercase tracking-[0.07em] text-maestro-muted">
           {title}
         </h2>
         <span className="shrink-0 font-mono text-[11px] font-semibold text-maestro-muted">
@@ -49,7 +52,7 @@ export function BoardColumn({
             STALE
           </span>
         )}
-        <div className="flex-1" />
+        <div className="min-w-[8px] flex-1" />
         {note}
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-[9px] overflow-y-auto rounded-[10px] bg-maestro-card p-[10px]">

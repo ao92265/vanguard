@@ -63,7 +63,7 @@ describe("buildSnapshot", () => {
     });
 
     const snapshot = buildSnapshot();
-    const labels = (snapshot.blocked as { label: string }[]).map((b) => b.label);
+    const labels = (snapshot.parked as { label: string }[]).map((b) => b.label);
 
     expect(labels).toContain("Parked: proj-idle");
     expect(labels).not.toContain("Parked: proj-live");

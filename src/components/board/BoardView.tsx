@@ -379,14 +379,20 @@ export function BoardView({
     const activeOutside = externallyActiveDirs.size;
     if (columns.moreHandoffs === 0 && activeOutside === 0) return undefined;
     return (
-      <span className="flex shrink-0 items-center gap-2 text-[10px] text-maestro-muted/70">
+      <span className="flex min-w-0 items-center gap-2 overflow-hidden text-[10px] text-maestro-muted/70">
         {columns.moreHandoffs > 0 && (
-          <span title="Older handoffs on disk, one per directory, hidden to keep the column short">
+          <span
+            className="truncate"
+            title="Older handoffs on disk, one per directory, hidden to keep the column short"
+          >
             +{columns.moreHandoffs} more on disk
           </span>
         )}
         {activeOutside > 0 && (
-          <span title="Directories with a claude process already running outside Vanguard, so their handoffs are not waiting for anyone">
+          <span
+            className="truncate"
+            title="Directories with a claude process already running outside Vanguard, so their handoffs are not waiting for anyone"
+          >
             {activeOutside} active outside Vanguard
           </span>
         )}

@@ -60,7 +60,7 @@ describe("TopBar", () => {
     expect(select).toHaveBeenLastCalledWith(false);
   });
 
-  it("dispatches the tools it buries behind More", () => {
+  it("dispatches the tools without a menu to open first", () => {
     const onOpenWorkflows = vi.fn();
     const onOpenExtensions = vi.fn();
     render(
@@ -71,13 +71,25 @@ describe("TopBar", () => {
         onOpenExtensions={onOpenExtensions}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "More" }));
+
+    expect(screen.queryByRole("button", { name: "More" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Workflows" }));
     expect(onOpenWorkflows).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "More" }));
     fireEvent.click(screen.getByRole("button", { name: "Extensions" }));
     expect(onOpenExtensions).toHaveBeenCalledTimes(1);
+  });
+
+  it("widens only when its own control is used, never on hover", () => {
+    render(<TopBar sidebarOpen onToggleSidebar={vi.fn()} />);
+    const rail = screen.getByRole("navigation", { name: "Workspace" });
+    expect(rail).toHaveAttribute("data-expanded", "false");
+
+    fireEvent.mouseEnter(rail);
+    expect(rail).toHaveAttribute("data-expanded", "false");
+
+    fireEvent.click(screen.getByRole("button", { name: "Wide menu" }));
+    expect(rail).toHaveAttribute("data-expanded", "true");
   });
 });

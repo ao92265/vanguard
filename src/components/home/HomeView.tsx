@@ -598,7 +598,7 @@ function QueueSection({
   );
 }
 
-type QueueBand = "blocked" | "landed" | "running";
+type QueueBand = "blocked" | "parked" | "landed" | "running";
 
 interface QueueEntry {
   item: BandItem;
@@ -707,6 +707,7 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
     () => partitionSnoozed(filtered(bands.blocked), snoozeEntries, Date.now()),
     [bands.blocked, filtered, snoozeEntries],
   );
+  const parked = useMemo(() => filtered(bands.parked), [bands.parked, filtered]);
   const landed = useMemo(() => filtered(bands.landed), [bands.landed, filtered]);
   const running = useMemo(() => filtered(bands.running), [bands.running, filtered]);
 
@@ -720,10 +721,11 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
       }
     };
     push(blocked.visible, "blocked");
+    push(parked, "parked");
     push(landed, "landed");
     push(running, "running");
     return entries;
-  }, [blocked.visible, landed, running]);
+  }, [blocked.visible, parked, landed, running]);
 
   /* Nothing selected means the top of the queue is what needs you: the card
      is never empty while the queue is not. */
@@ -986,6 +988,15 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
           label="Then"
           entries={rest("blocked")}
           emptyText="Nothing else is blocked on you."
+          onInspect={inspect}
+        />
+
+        {/* Parked is not "blocked on you": nobody is waiting on these, they
+            are yours to pick up. Kept in the queue so j/k still reach them. */}
+        <QueueSection
+          label="Parked, pick up when you want"
+          entries={rest("parked")}
+          emptyText="No handoffs are waiting on disk."
           onInspect={inspect}
           stale={handoffsError}
           action={

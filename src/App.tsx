@@ -43,6 +43,7 @@ import {
 } from "./components/shared/PanelResizeHandle";
 import { ProjectTabs } from "./components/shared/ProjectTabs";
 import { QuickOpenPalette } from "./components/shared/QuickOpenPalette";
+import { ToolsEdgeToggle } from "./components/shared/ToolsEdgeToggle";
 import { type EagleProjectOption, TopBar } from "./components/shared/TopBar";
 import { UtilityPanel, type UtilityPanelKind } from "./components/shared/UtilityPanel";
 import { WorkbenchDock } from "./components/shared/WorkbenchDock";
@@ -1107,8 +1108,6 @@ function App() {
 
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         <TopBar
-          sidebarOpen={sidebarOpen}
-          onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
           eagleView={eagleView}
           onToggleEagleView={() => {
             handleWorkbenchNavigate(false);
@@ -1163,6 +1162,7 @@ function App() {
             />
           }
         />
+        <ToolsEdgeToggle open={sidebarOpen} onOpen={() => setSidebarOpen(true)} />
         <div className={`workbench-tools-surface ${sidebarOpen ? "" : "hidden"}`}>
           <button
             type="button"

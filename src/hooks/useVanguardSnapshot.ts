@@ -82,6 +82,9 @@ export function buildSnapshot(): Record<string, unknown> {
     writtenAt: Date.now(),
     counts: bands.counts,
     blocked: bands.blocked.map(rowOf),
+    /* Separate from `blocked` so the Telegram ping counts people waiting, not
+       files on disk. The digest reads `.blocked` and now says what it means. */
+    parked: bands.parked.map(rowOf),
     landed: bands.landed.map(rowOf),
     runningCount: bands.running.length,
     moreHandoffs: bands.moreHandoffs,

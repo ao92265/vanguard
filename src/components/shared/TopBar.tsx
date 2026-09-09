@@ -30,8 +30,6 @@ interface TopBarProps {
   onOpenLedger?: () => void;
   canAddSession?: boolean;
   workflowsViewOpen?: boolean;
-  sidebarOpen: boolean;
-  onToggleSidebar: () => void;
   onAddSession?: () => void;
   /** Whether eagle view (all projects' terminals at once) is active */
   eagleView?: boolean;
@@ -78,8 +76,6 @@ export function TopBar({
   onOpenLedger,
   canAddSession = true,
   workflowsViewOpen = false,
-  sidebarOpen,
-  onToggleSidebar,
   onAddSession,
   eagleView = false,
   onToggleEagleView,
@@ -110,8 +106,6 @@ export function TopBar({
   return (
     <WorkbenchRail
       projectNavigation={projectNavigation}
-      sidebarOpen={sidebarOpen}
-      onToggleSidebar={onToggleSidebar}
       primary={[
         {
           label: "Inbox",

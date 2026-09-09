@@ -200,7 +200,7 @@ it("names the handoff's repo and says when it asked you something", () => {
   expect(card.getByText("ASKED YOU")).toBeVisible();
   expect(card.queryByText("Handoff")).toBeNull();
 
-  const parked = within(screen.getByRole("list", { name: "Then" }));
+  const parked = within(screen.getByRole("list", { name: "Parked, pick up when you want" }));
   expect(parked.getByText("wraith")).toBeVisible();
   expect(parked.getByText("HANDOFF")).toBeVisible();
 });

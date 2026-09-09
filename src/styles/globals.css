@@ -138,7 +138,7 @@
     flex: none;
     transition: width 160ms ease;
   }
-  .workbench-rail-slot[data-pinned="true"] {
+  .workbench-rail-slot[data-expanded="true"] {
     width: 232px;
   }
   .workbench-rail {
@@ -158,17 +158,6 @@
   }
   .workbench-rail[data-expanded="true"] {
     width: 232px;
-  }
-  /* Do not restore the clip here. `overflow-x: hidden` makes the rail a
-     clipping box on BOTH axes, so the More popup below, at `left: 100%`, is
-     clipped out of existence without this rule: the menu simply stops
-     appearing, with no error anywhere. The clip exists to hide row labels
-     overflowing a 58px rail mid-transition, and lifting it is safe here
-     because `data-more-open` only ever holds while the rail is already at
-     full width (More forces the expanded state). The one cost is that the
-     rail cannot scroll while the menu is open, which is deliberate. */
-  .workbench-rail[data-more-open="true"] {
-    overflow: visible;
   }
   .workbench-brand {
     display: flex;
@@ -307,25 +296,9 @@
     z-index: 60;
     box-shadow: 12px 0 24px rgb(0 0 0 / 0.2);
   }
-  /* Follows the flow width, not the visual one: a transient hover expansion
-     floats over this surface rather than moving it. */
-  .workbench-rail[data-pinned="true"] + .workbench-tools-surface {
+  /* The rail has one width now, so this simply follows it. */
+  .workbench-rail[data-expanded="true"] + .workbench-tools-surface {
     left: 232px;
-  }
-  /* Rendered after the More button so forward tabbing reaches it, and put
-     back beside the rail with CSS rather than with DOM order. */
-  .workbench-more {
-    position: absolute;
-    left: 100%;
-    bottom: 8px;
-    z-index: 60;
-    margin-left: 6px;
-    min-width: 184px;
-    padding: 6px;
-    border: 1px solid rgb(var(--maestro-border));
-    border-radius: 9px;
-    background: rgb(var(--maestro-card));
-    box-shadow: 0 12px 28px rgb(0 0 0 / 0.35);
   }
   .workbench-dock {
     width: 68px;

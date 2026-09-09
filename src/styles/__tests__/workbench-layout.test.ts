@@ -60,11 +60,12 @@ describe("workbench footer stacking", () => {
 });
 
 describe("workbench rail flow", () => {
-  it("reserves content width from a slot, not from the rail itself", () => {
-    // The rail overlays while transiently expanded. Only the slot's width
-    // reaches the content column, so hover cannot resize a live terminal.
+  it("gives the content column exactly the width the rail occupies", () => {
+    // The rail is positioned, so a slot behind it holds the space. The two
+    // carry the same widths in both states: widening the rail moves the page
+    // across rather than covering it.
     expect(numeric(ruleBody(".workbench-rail-slot"), "width")).toBe(58);
-    expect(numeric(ruleBody('.workbench-rail-slot[data-pinned="true"]'), "width")).toBe(232);
+    expect(numeric(ruleBody('.workbench-rail-slot[data-expanded="true"]'), "width")).toBe(232);
 
     const rail = ruleBody(".workbench-rail");
     expect(rail).toMatch(/position:\s*absolute/);
@@ -72,18 +73,10 @@ describe("workbench rail flow", () => {
     expect(numeric(ruleBody('.workbench-rail[data-expanded="true"]'), "width")).toBe(232);
   });
 
-  it("offsets the tools surface by the pinned width, not the hovered width", () => {
+  it("offsets the tools surface by the rail's width", () => {
     expect(
-      numeric(ruleBody('.workbench-rail[data-pinned="true"] + .workbench-tools-surface'), "left"),
+      numeric(ruleBody('.workbench-rail[data-expanded="true"] + .workbench-tools-surface'), "left"),
     ).toBe(232);
-  });
-
-  it("floats the More popup out of the rail instead of stacking it in flow", () => {
-    const popup = ruleBody(".workbench-more");
-    expect(popup).toMatch(/position:\s*absolute/);
-    // The rail clips horizontally to hide label overflow mid-transition, so
-    // the popup only escapes while More is open.
-    expect(ruleBody('.workbench-rail[data-more-open="true"]')).toMatch(/overflow:\s*visible/);
   });
 });
 
