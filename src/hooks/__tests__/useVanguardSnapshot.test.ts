@@ -53,7 +53,23 @@ describe("buildSnapshot", () => {
       repoPrs: [],
       watermarkMs: 0,
       externallyActiveDirs: new Set<string>(),
+      tmuxSessions: [],
     });
+  });
+
+  it("publishes the same in-progress total the Building column shows", () => {
+    /* The status line in the terminal reads this number rather than counting
+       for itself: two tallies of "what is running" computed in two places is
+       how the bar and the board came to disagree in the first place. */
+    useBandStore.setState({
+      tmuxSessions: [
+        { name: "one", cwd: "/tmp/one", attached: true, created: 0, windows: 1 },
+        { name: "two", cwd: "/tmp/two", attached: false, created: 0, windows: 1 },
+      ],
+      externallyActiveDirs: new Set(["/tmp/elsewhere"]),
+    });
+
+    expect(buildSnapshot().buildingCount).toBe(3);
   });
 
   it("does not report a handoff as parked while a claude runs in its directory outside Maestro", () => {
