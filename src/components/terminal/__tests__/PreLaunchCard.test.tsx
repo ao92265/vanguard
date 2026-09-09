@@ -9,58 +9,55 @@ vi.mock("@/lib/terminal", () => ({
   deleteClaudeSession: vi.fn().mockResolvedValue(undefined),
 }));
 
+const makeSlot = (overrides?: Partial<SessionSlot>): SessionSlot => ({
+  id: "slot-1",
+  mode: "Claude",
+  branch: null,
+  sessionId: null,
+  worktreePath: null,
+  worktreeWarning: null,
+  enabledMcpServers: [],
+  enabledSkills: [],
+  enabledPlugins: [],
+  ...overrides,
+});
+
+const defaultProps = {
+  slot: makeSlot(),
+  projectPath: "/tmp/test-repo",
+  branches: [
+    { name: "main", isRemote: false, isCurrent: true, hasWorktree: false },
+    { name: "develop", isRemote: false, isCurrent: false, hasWorktree: false },
+  ],
+  isLoadingBranches: false,
+  isGitRepo: true,
+  mcpServers: [],
+  skills: [],
+  plugins: [],
+  onModeChange: vi.fn(),
+  onBranchChange: vi.fn(),
+  onMcpToggle: vi.fn(),
+  onSkillToggle: vi.fn(),
+  onPluginToggle: vi.fn(),
+  onMcpSelectAll: vi.fn(),
+  onMcpUnselectAll: vi.fn(),
+  onPluginsSelectAll: vi.fn(),
+  onPluginsUnselectAll: vi.fn(),
+  onLaunch: vi.fn(),
+  onRemove: vi.fn(),
+  onResumeSessionChange: vi.fn(),
+};
+
 describe("PreLaunchCard branch creation", () => {
-  const makeSlot = (overrides?: Partial<SessionSlot>): SessionSlot => ({
-    id: "slot-1",
-    mode: "Claude",
-    branch: null,
-    sessionId: null,
-    worktreePath: null,
-    worktreeWarning: null,
-    enabledMcpServers: [],
-    enabledSkills: [],
-    enabledPlugins: [],
-    ...overrides,
-  });
-
-  const defaultProps = {
-    slot: makeSlot(),
-    projectPath: "/tmp/test-repo",
-    branches: [
-      { name: "main", isRemote: false, isCurrent: true, hasWorktree: false },
-      { name: "develop", isRemote: false, isCurrent: false, hasWorktree: false },
-    ],
-    isLoadingBranches: false,
-    isGitRepo: true,
-    mcpServers: [],
-    skills: [],
-    plugins: [],
-    onModeChange: vi.fn(),
-    onBranchChange: vi.fn(),
-    onMcpToggle: vi.fn(),
-    onSkillToggle: vi.fn(),
-    onPluginToggle: vi.fn(),
-    onMcpSelectAll: vi.fn(),
-    onMcpUnselectAll: vi.fn(),
-    onPluginsSelectAll: vi.fn(),
-    onPluginsUnselectAll: vi.fn(),
-    onLaunch: vi.fn(),
-    onRemove: vi.fn(),
-    onResumeSessionChange: vi.fn(),
-  };
-
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   /** Helper to open the branch dropdown */
-  it("keeps launch available while advanced integrations are collapsed", () => {
+  it("keeps launch available with every setting on screen", () => {
     render(<PreLaunchCard {...defaultProps} />);
-    expect(screen.queryByText("No MCP servers configured")).not.toBeVisible();
-    expect(screen.getByRole("button", { name: "Launch Session" })).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: /Advanced settings/ }));
     expect(screen.getByText("No MCP servers configured")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: /Advanced settings/ }));
+    expect(screen.getByRole("button", { name: "Launch Session" })).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Launch Session" }));
     expect(defaultProps.onLaunch).toHaveBeenCalledTimes(1);
   });
@@ -467,5 +464,85 @@ describe("PreLaunchCard resolves-to panel", () => {
     expect(panel).toHaveTextContent("kept for 24 hours");
     expect(panel).toHaveTextContent("removed when the session closes");
     expect(panel).not.toHaveTextContent("turn ends");
+  });
+});
+
+/*
+ * Design 1b: the pane is a project column, a settings column and a
+ * full-width resolves-to strip, with nothing hidden behind a disclosure.
+ */
+describe("PreLaunchCard layout (design 1b)", () => {
+  const repos = [
+    {
+      path: "/tmp/api",
+      name: "api",
+      isGitRepo: true,
+      currentBranch: "main",
+      remoteUrl: null,
+    },
+    {
+      path: "/tmp/web",
+      name: "web",
+      isGitRepo: true,
+      currentBranch: "release",
+      remoteUrl: null,
+    },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("names the one project instead of offering a list of one", () => {
+    render(<PreLaunchCard {...defaultProps} />);
+
+    const project = within(screen.getByRole("region", { name: "Project" }));
+    expect(project.getByText("test-repo")).toBeVisible();
+    expect(project.getByText("/tmp/test-repo")).toBeVisible();
+    // A single-project workspace has nothing to choose between, so the
+    // column must not render a picker with one row in it.
+    expect(project.queryAllByRole("button")).toHaveLength(0);
+  });
+
+  it("lists the workspace repositories in the project column and switches on click", () => {
+    const onRepoChange = vi.fn();
+    render(
+      <PreLaunchCard
+        {...defaultProps}
+        workspaceType="multi-repo"
+        repositories={repos}
+        selectedRepoPath="/tmp/api"
+        onRepoChange={onRepoChange}
+      />,
+    );
+
+    const project = within(screen.getByRole("region", { name: "Project" }));
+    const web = project.getByRole("button", { name: /web/ });
+    expect(project.getByRole("button", { name: /api/ })).toHaveAttribute("aria-pressed", "true");
+    expect(web).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(web);
+    expect(onRepoChange).toHaveBeenCalledWith("/tmp/web");
+  });
+
+  it("shows the integrations without an advanced disclosure", () => {
+    render(<PreLaunchCard {...defaultProps} />);
+
+    expect(screen.queryByRole("button", { name: /Advanced settings/ })).not.toBeInTheDocument();
+    expect(screen.getByText("MCP Servers")).toBeVisible();
+    expect(screen.getByText("Plugins & Skills")).toBeVisible();
+  });
+
+  it("puts the resolves-to summary outside the settings column, after it", () => {
+    render(<PreLaunchCard {...defaultProps} />);
+
+    const settings = screen.getByRole("region", { name: "Session settings" });
+    const resolves = screen.getByRole("region", { name: "Resolves to" });
+
+    expect(settings.contains(resolves)).toBe(false);
+    expect(
+      settings.compareDocumentPosition(resolves) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(within(resolves).getByText(/There is no remote launcher/)).toBeVisible();
   });
 });
