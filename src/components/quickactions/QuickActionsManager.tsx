@@ -228,7 +228,7 @@ export function QuickActionsManager({ onClose }: QuickActionsManagerProps) {
           <button
             type="button"
             onClick={() => setIsCreating(true)}
-            className="flex items-center gap-1 rounded bg-maestro-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-maestro-accent/90"
+            className="flex items-center gap-1 rounded bg-maestro-accent px-3 py-1.5 text-xs font-medium text-maestro-on-accent hover:bg-maestro-accent/90"
           >
             <Plus size={12} />
             Add Quick Action

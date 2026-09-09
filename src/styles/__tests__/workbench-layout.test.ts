@@ -106,29 +106,11 @@ describe("workbench rail flow", () => {
  * Until then a NEW accent control added to this file goes unguarded, which is
  * the real cost of leaving it off.
  */
-const PORTED_SURFACES = [
-  "src/App.tsx",
-  "src/components/board/BoardCard.tsx",
-  "src/components/board/BoardColumn.tsx",
-  "src/components/board/BoardView.tsx",
-  "src/components/board/WorkLedger.tsx",
-  "src/components/factory/FactoryView.tsx",
-  "src/components/home/HomeView.tsx",
-  "src/components/orchestrator/OrchestratorView.tsx",
-  "src/components/pulse/MetricsPulse.tsx",
-  "src/components/pulse/PulseView.tsx",
-  "src/components/pulse/pulsePresentation.ts",
-  "src/components/shared/BottomBar.tsx",
-  "src/components/shared/ProjectTabs.tsx",
-  "src/components/shared/TopBar.tsx",
-  "src/components/shared/WorkbenchDock.tsx",
-  "src/components/shared/WorkbenchRail.tsx",
-  "src/components/shared/WorkbenchTitleBar.tsx",
-  "src/components/terminal/ImageDeliverySheet.tsx",
-  "src/components/terminal/ImageDestination.tsx",
-  "src/components/terminal/SessionRail.tsx",
-  "src/components/terminal/TerminalGrid.tsx",
-];
+
+/* Every file the accent-ink rule reads. Not a curated list: a curated list is
+   how thirty unreadable buttons sat outside a passing test. Test files are
+   excluded because they quote class names in order to assert on them. */
+const ACCENT_INK_SURFACES = sourceFiles("src").filter((f) => !f.includes("__tests__"));
 
 // A solid accent fill. `bg-maestro-accent/15` is a tint, not a fill. Built
 // fresh at each use: a `/g` regex carries `lastIndex` between calls.
@@ -164,12 +146,19 @@ describe("workbench accent ink", () => {
     expect(launch).not.toContain("text-white");
   });
 
-  it.each(PORTED_SURFACES)("gives every accent-filled control in %s its onAccent ink", (file) => {
+  it.each(
+    ACCENT_INK_SURFACES,
+  )("gives every accent-filled control in %s its onAccent ink", (file) => {
     // BottomBar was the only file this rule covered while a camelCased
     // spelling of the token shipped on two other primary actions. An unknown
     // utility class raises no error in Tailwind, in tsc, in Biome or in
     // happy-dom, so a misspelling is invisible everywhere except a rendered
     // pixel. This is the only layer that can see it, so it reads every one.
+    //
+    // The list this ran on used to be the redesigned surfaces alone, which
+    // meant the rule was true of the screens somebody had looked at and false
+    // of the twenty-five it had never been pointed at. Contrast is not a
+    // property of a redesign, so it now reads every source file in the app.
     const source = read(file);
     const fills: string[] = [];
     for (const match of source.matchAll(solidFill("g"))) {

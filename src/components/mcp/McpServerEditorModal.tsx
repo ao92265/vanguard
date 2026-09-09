@@ -573,7 +573,7 @@ export function McpServerEditorModal({
             type="button"
             onClick={handleSave}
             disabled={saving}
-            className="flex items-center gap-2 rounded bg-maestro-accent px-4 py-2 text-xs text-white hover:bg-maestro-accent/80 disabled:opacity-50"
+            className="flex items-center gap-2 rounded bg-maestro-accent px-4 py-2 text-xs text-maestro-on-accent hover:bg-maestro-accent/80 disabled:opacity-50"
           >
             {saving ? (
               <>

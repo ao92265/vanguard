@@ -687,7 +687,7 @@ function SessionCloseBehaviorSection() {
               title={opt.description}
               className={`flex-1 rounded px-2 py-1.5 text-[11px] font-medium transition-colors ${
                 worktreeCloseAction === opt.value
-                  ? "bg-maestro-accent text-white"
+                  ? "bg-maestro-accent text-maestro-on-accent"
                   : "border border-maestro-border bg-maestro-card text-maestro-muted hover:text-maestro-text hover:border-maestro-accent/50"
               }`}
             >

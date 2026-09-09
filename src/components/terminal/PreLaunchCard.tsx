@@ -817,7 +817,7 @@ export function PreLaunchCard({
                                         .finally(() => setIsCreatingBranch(false));
                                     }}
                                     disabled={!newBranchName.trim() || isCreatingBranch}
-                                    className="rounded bg-maestro-accent px-2 py-1 text-xs font-medium text-white disabled:opacity-50"
+                                    className="rounded bg-maestro-accent px-2 py-1 text-xs font-medium text-maestro-on-accent disabled:opacity-50"
                                     title="Create branch and select it"
                                   >
                                     {isCreatingBranch ? "..." : "Create & Select"}
@@ -1033,7 +1033,7 @@ export function PreLaunchCard({
                           isDisabled
                             ? "border border-maestro-border bg-maestro-card text-maestro-muted opacity-40 cursor-not-allowed"
                             : isActive
-                              ? "bg-maestro-accent text-white"
+                              ? "bg-maestro-accent text-maestro-on-accent"
                               : "border border-maestro-border bg-maestro-card text-maestro-muted hover:text-maestro-text hover:border-maestro-accent/50"
                         }`}
                       >

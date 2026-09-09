@@ -419,7 +419,7 @@ export function BranchesPanel({ repoPath }: { repoPath: string }) {
           type="button"
           onClick={() => void handleCreate()}
           disabled={isCreating || !newBranchName.trim()}
-          className="flex shrink-0 items-center gap-1 rounded bg-maestro-accent px-2 py-1 text-xs text-white hover:bg-maestro-accent/80 disabled:opacity-50"
+          className="flex shrink-0 items-center gap-1 rounded bg-maestro-accent px-2 py-1 text-xs text-maestro-on-accent hover:bg-maestro-accent/80 disabled:opacity-50"
           title="Create branch from HEAD"
         >
           {isCreating ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}

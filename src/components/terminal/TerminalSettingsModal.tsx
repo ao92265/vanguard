@@ -139,7 +139,7 @@ export function TerminalSettingsModal({ onClose }: TerminalSettingsModalProps) {
                         onClick={() => setZoomLevel(preset)}
                         className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
                           settings.zoomLevel === preset
-                            ? "bg-maestro-accent text-white"
+                            ? "bg-maestro-accent text-maestro-on-accent"
                             : "bg-maestro-bg text-maestro-muted hover:bg-maestro-border/40 hover:text-maestro-text"
                         }`}
                       >

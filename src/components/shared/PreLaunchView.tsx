@@ -21,7 +21,7 @@ export function PreLaunchView({ onSelectProject }: PreLaunchViewProps) {
       <button
         type="button"
         onClick={onSelectProject}
-        className="flex items-center gap-2 rounded-lg bg-maestro-accent px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-500"
+        className="flex items-center gap-2 rounded-lg bg-maestro-accent px-5 py-2.5 text-sm font-medium text-maestro-on-accent transition-colors hover:bg-blue-500"
       >
         <FolderOpen size={16} />
         Open Project

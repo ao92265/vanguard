@@ -242,7 +242,7 @@ export function PrActionsMenu({ pr, repoPath }: PrActionsMenuProps) {
             type="button"
             onClick={handleLaunch}
             disabled={ticked === 0}
-            className="mt-1 flex w-full items-center justify-center gap-1 rounded bg-maestro-accent px-2 py-1 text-xs font-medium text-white transition-colors hover:bg-maestro-accent/80 disabled:cursor-not-allowed disabled:opacity-50"
+            className="mt-1 flex w-full items-center justify-center gap-1 rounded bg-maestro-accent px-2 py-1 text-xs font-medium text-maestro-on-accent transition-colors hover:bg-maestro-accent/80 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Play size={11} />
             Launch {ticked} {ticked === 1 ? "step" : "steps"}

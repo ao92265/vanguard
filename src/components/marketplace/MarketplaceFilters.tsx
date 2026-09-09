@@ -44,7 +44,7 @@ export function MarketplaceFilters() {
             onClick={() => setFilter("category", filters.category === cat.value ? null : cat.value)}
             className={`rounded-full px-2 py-0.5 text-xs transition-colors ${
               filters.category === cat.value
-                ? "bg-maestro-accent text-white"
+                ? "bg-maestro-accent text-maestro-on-accent"
                 : "bg-maestro-card text-maestro-muted hover:bg-maestro-surface hover:text-maestro-text"
             }`}
           >
@@ -65,7 +65,7 @@ export function MarketplaceFilters() {
             onClick={() => setFilter("type", filters.type === t.value ? null : t.value)}
             className={`rounded-full px-2 py-0.5 text-xs transition-colors ${
               filters.type === t.value
-                ? "bg-maestro-accent text-white"
+                ? "bg-maestro-accent text-maestro-on-accent"
                 : "bg-maestro-card text-maestro-muted hover:bg-maestro-surface hover:text-maestro-text"
             }`}
           >
