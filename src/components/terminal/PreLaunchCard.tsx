@@ -387,11 +387,17 @@ export function PreLaunchCard({
     : currentBranch;
   /* What the panel knows about the branch: an explicit choice, else the polled
      current branch, else null because nothing has settled it yet.
-     This is NOT a promise about where the launch lands. With no explicit choice
-     and `worktreeMode: "auto"`, the backend reuses the first managed worktree it
-     finds and returns whatever branch that one is on, falling back to HEAD only
-     when there is none. So an explicit choice is exact, and everything else is
-     this panel's best reading. Say less here rather than more. */
+
+     This is NOT a promise about where the launch lands, in either arm.
+     With no explicit choice and `worktreeMode: "auto"`, the backend reuses the
+     first managed worktree it finds and returns whatever branch that one is on,
+     reaching HEAD only when there is none.
+     And an explicit choice is not exact either: the picker offers remote-only
+     refs, so this can hold `origin/x` while `resolve_local_branch_name` strips
+     the remote and the session lands on `x`.
+
+     Both are reasons to say less here, not more. Do not write a comment or a
+     label that promises this value is the launch branch. */
   const resolvedBranch = selectedBranchInfo?.name ?? slot.branch ?? null;
   /* "Current" is the picker button's label for an unsettled branch, and reads
      as one there. It is a placeholder, so it stays inside the picker: see the
@@ -1915,9 +1921,17 @@ export function PreLaunchCard({
             </ResolveRow>
             <ResolveRow label="branch">
               {/* A multi-repo workspace can hold folders that are not checkouts, and
-                  they are selectable. `isMultiRepo` alone kept saying something about a
-                  branch for those, so the selected repo has to answer for itself, the
-                  same test the picker above already uses. */}
+                  they are selectable. The workspace root is prepended as the first
+                  repository and is the default selection, so guarding on
+                  `isMultiRepo` alone described a branch on first open of every
+                  multi-repo workspace, not in some edge case. The selected repo now
+                  answers, the same test the picker above uses.
+
+                  Note the OR still lets a stale `isGitRepo` win: it is the result of
+                  the branch poll and lags one round behind the selection, so for that
+                  window this can pass on the previous repository's answer. That is
+                  the same unflushed-poll problem as the branch value itself, and it
+                  wants fixing in one place rather than patched here. */}
               {isGitRepo || (isMultiRepo && selectedRepo?.isGitRepo)
                 ? (resolvedBranch ?? "resolved at launch")
                 : "not a git repository"}

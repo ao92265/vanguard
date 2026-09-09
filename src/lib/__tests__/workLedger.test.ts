@@ -306,11 +306,13 @@ describe("ledgerTotals", () => {
   });
 
   it("treats an absent identity as absent whichever flavour of absent it gets", () => {
-    /* `buildLedgerEntries` only ever writes `string | null`, and today it is the
-       only producer: nothing persists or deserializes a `LedgerEntry`. So
-       `undefined` reaches here from hand-built objects and fixtures only, which
-       is exactly how the bug this guards got in. Keep the check total anyway,
-       because the type permits it. The counted output asserted here is the one the real system
+    /* `projectKey` is typed `string | null`, so the compiler rejects `undefined`
+       outright and `buildLedgerEntries`, the only producer, never writes it.
+       The one place it can appear is a fixture built through `Partial`, which is
+       exactly how the bug this guards got in. So this is a guard on test code,
+       not on a state production can reach. Kept because the cost is one operator
+       and the failure it prevents is silent.
+       The counted output asserted here is the one the real system
        produces for a record that named no project (a run with no repo URL
        gives exactly `projects: 0, unattributed: 1`), and the point of the
        identity split was that such a record must never inflate `projects`.
