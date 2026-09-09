@@ -290,15 +290,17 @@
     flex: none;
     padding: 8px;
   }
+  /* A column in the row, not a sheet over it: opening the tools narrows the
+     terminals rather than covering them, which is the same bargain the rail
+     already makes with its slot. It used to be positioned and offset by the
+     rail's width, so the work behind it disappeared every time it opened.
+     Width comes from the sidebar inside; `relative` is for the close button
+     it carries in its own corner. */
   .workbench-tools-surface {
-    position: absolute;
-    inset: 0 auto 0 58px;
+    position: relative;
     z-index: 60;
-    box-shadow: 12px 0 24px rgb(0 0 0 / 0.2);
-  }
-  /* The rail has one width now, so this simply follows it. */
-  .workbench-rail[data-expanded="true"] + .workbench-tools-surface {
-    left: 232px;
+    display: flex;
+    flex: none;
   }
   /* Sized for glyphs, not words. The buttons used to carry abbreviated
      labels, which is what set the 68px column and the 58x30 button; an icon

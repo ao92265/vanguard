@@ -73,10 +73,17 @@ describe("workbench rail flow", () => {
     expect(numeric(ruleBody('.workbench-rail[data-expanded="true"]'), "width")).toBe(232);
   });
 
-  it("offsets the tools surface by the rail's width", () => {
-    expect(
-      numeric(ruleBody('.workbench-rail[data-expanded="true"] + .workbench-tools-surface'), "left"),
-    ).toBe(232);
+  it("seats the tools surface in the row rather than over it", () => {
+    // The panel is a column beside the workspace, not a sheet on top of it:
+    // opening it narrows the terminals instead of hiding them. That only
+    // holds while it stays in normal flow, so a `position: absolute` here
+    // (which is how it used to be written, offset by the rail's width) is
+    // the regression this guards.
+    const surface = ruleBody(".workbench-tools-surface");
+    expect(surface).not.toMatch(/position:\s*(absolute|fixed)/);
+    expect(surface).not.toMatch(/(^|[;\s])(inset|left):/);
+    expect(surface).toMatch(/flex:\s*none/);
+    expect(css).not.toContain('.workbench-rail[data-expanded="true"] + .workbench-tools-surface');
   });
 });
 

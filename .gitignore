@@ -80,3 +80,6 @@ website/.jekyll-metadata
 
 # ACT engine runtime state (intervention history, replays, worktrees)
 .act/
+
+# Impeccable design-hook cache
+.impeccable/
