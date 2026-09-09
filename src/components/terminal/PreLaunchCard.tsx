@@ -417,6 +417,52 @@ export function PreLaunchCard({
      rather than patched here. Do not assume this flag covers them. */
   const branchPickerIsGit = isMultiRepo ? Boolean(selectedRepo?.isGitRepo) : isGitRepo;
 
+  /* The local branch name a choice really lands on. `resolve_local_branch_name`
+     (src-tauri/src/commands/worktree.rs) strips the first segment of anything
+     that is not a local branch before the session is created, so a remote-only
+     `origin/x` becomes `x`. Mirror it exactly, including the case it
+     deliberately leaves alone: `feature/foo` IS a local branch, so it survives
+     whole, and stripping it here would print a branch that does not exist. */
+  const localBranchName = (name: string): string => {
+    if (branches.some((b) => !b.isRemote && b.name === name)) return name;
+    const slashIndex = name.indexOf("/");
+    return slashIndex === -1 ? name : name.substring(slashIndex + 1);
+  };
+
+  /* What the resolves-to row says about the branch, decided the way
+     `launchSlotInner` decides it rather than the way the picker labels it.
+
+     Four things could make this row name a branch the session will not be on,
+     and all four are answered here, in one place, rather than patched where
+     each shows up:
+
+     - A poll in flight. Switching repository re-runs the branch poll, and
+       until it returns, `branches` and `isGitRepo` still hold the PREVIOUS
+       repository's answers. Nothing is claimed while `isLoadingBranches`.
+     - The git flag, which is that poll's result and so lags the selection by a
+       round. Covered by the same case: the in-flight window is the only one in
+       which it can disagree with the selection.
+     - Auto mode with no explicit choice. `prepare_worktree_inner` walks the
+       managed worktrees and returns the FIRST one's branch, reaching HEAD only
+       when there is none, so the polled current branch is a guess. `project`
+       never prepares a worktree at all and `new` passes force_new, which skips
+       that walk and cuts from HEAD, so both of those can still name it. A
+       resume pins the project directory, so it can too.
+     - A remote-only choice, stripped to its local name above.
+
+     "resolved at launch" is this panel's existing words for a branch nothing
+     has settled yet; the working-directory row says the same for the same
+     reason. Do not replace it with a value that merely looks more specific. */
+  const branchResolvesTo = isLoadingBranches
+    ? "resolved at launch"
+    : !branchPickerIsGit
+      ? "not a git repository"
+      : slot.branch
+        ? localBranchName(slot.branch)
+        : slot.worktreeMode === "auto" && !slot.resumeSessionId
+          ? "resolved at launch"
+          : (resolvedBranch ?? "resolved at launch");
+
   // What the launch will actually do, read off the same fields the launch
   // reads (see `launchSlotInner` in TerminalGrid). A worktree that does not
   // exist yet is described as one, never as a made-up path.
@@ -1525,15 +1571,12 @@ export function PreLaunchCard({
                 {slot.resumeSessionId ? " · resuming a previous conversation" : ""}
               </ResolveRow>
               <ResolveRow label="branch">
-                {/* A multi-repo workspace can hold folders that are not checkouts, and
-                  they are selectable. The workspace root is prepended as the first
-                  repository and is the default selection, so guarding on
-                  `isMultiRepo` alone described a branch on first open of every
-                  multi-repo workspace, not in some edge case. This reads the one
-                  flag the picker reads, so the two can never disagree. */}
-                {branchPickerIsGit
-                  ? (resolvedBranch ?? "resolved at launch")
-                  : "not a git repository"}
+                {/* Every reason this row could name the wrong branch is settled in
+                  `branchResolvesTo` above, next to the launch conditions it
+                  mirrors. Do not reintroduce a test here: a second one drifts
+                  from the first, which is how the panel came to disagree with
+                  the picker in the first place. */}
+                {branchResolvesTo}
               </ResolveRow>
               <ResolveRow label="working directory">{resolvedWorkingDirectory}</ResolveRow>
               <ResolveRow label="integrations">{integrationsSummary}</ResolveRow>

@@ -465,6 +465,122 @@ describe("PreLaunchCard resolves-to panel", () => {
     expect(panel).toHaveTextContent("removed when the session closes");
     expect(panel).not.toHaveTextContent("turn ends");
   });
+
+  /* The four queued resolves-to defects. All four are the same shape: the row
+     stated a branch it had not been told, and could not have been told, yet.
+     Each names the launch-path condition it stands for, because the row's job
+     is to describe `launchSlotInner`, not to describe `branches`. */
+
+  it("does not name the previous repository's branch while a new poll is in flight", () => {
+    // Switching repository changes `repoPath`, which re-runs the branch poll.
+    // Until that poll returns, `branches` and `isGitRepo` are still the
+    // PREVIOUS repository's answers, so a row that reads them names a branch
+    // from a repository this session will not touch.
+    // `isLoadingBranches` is what says the answers are in flight, and it is
+    // already passed to this component; only this row never read it.
+    render(
+      <PreLaunchCard
+        {...baseProps}
+        isLoadingBranches={true}
+        branches={[{ name: "main", isRemote: false, isCurrent: true, hasWorktree: false }]}
+        slot={makeSlot({ branch: null })}
+      />,
+    );
+    const branchRow = resolveRow("branch");
+    expect(branchRow).not.toHaveTextContent("main");
+    expect(branchRow).toHaveTextContent("resolved at launch");
+  });
+
+  it("does not carry the previous repository's git answer into a repository being polled", () => {
+    // The mirror of the case above, and the one that shows the stale flag
+    // rather than the stale list: the previous selection was a plain folder,
+    // so `isGitRepo` is false, and the newly selected repository is a real
+    // checkout whose poll has not returned. Printing "not a git repository"
+    // here is a claim about the previous folder.
+    render(
+      <PreLaunchCard
+        {...baseProps}
+        isGitRepo={false}
+        isLoadingBranches={true}
+        branches={[]}
+        slot={makeSlot({ branch: null })}
+      />,
+    );
+    const branchRow = resolveRow("branch");
+    expect(branchRow).not.toHaveTextContent("not a git repository");
+    expect(branchRow).toHaveTextContent("resolved at launch");
+  });
+
+  it("names the local branch a remote-only choice really lands on", () => {
+    // The picker offers remote-only refs. Choosing one passes `origin/x` to
+    // `prepareSessionWorktree`, and `resolve_local_branch_name`
+    // (src-tauri/src/commands/worktree.rs) strips the first segment before the
+    // session is created, so the session lands on `x`. The picker button is
+    // right to echo the choice; this row states where the launch lands.
+    render(
+      <PreLaunchCard
+        {...baseProps}
+        branches={[
+          { name: "main", isRemote: false, isCurrent: true, hasWorktree: false },
+          { name: "origin/feature-x", isRemote: true, isCurrent: false, hasWorktree: false },
+        ]}
+        slot={makeSlot({ branch: "origin/feature-x", worktreeMode: "new" })}
+      />,
+    );
+    expect(resolveRow("branch")).toHaveTextContent("feature-x");
+    expect(resolveRow("branch")).not.toHaveTextContent("origin/feature-x");
+  });
+
+  it("leaves a local branch that contains a slash alone", () => {
+    // The guard on the case above. `resolve_local_branch_name` strips the
+    // first segment ONLY when the name is not a local branch, so `feature/foo`
+    // survives whole. Stripping it here would print `foo`, a branch that does
+    // not exist.
+    render(
+      <PreLaunchCard
+        {...baseProps}
+        branches={[
+          { name: "main", isRemote: false, isCurrent: true, hasWorktree: false },
+          { name: "feature/foo", isRemote: false, isCurrent: false, hasWorktree: false },
+        ]}
+        slot={makeSlot({ branch: "feature/foo", worktreeMode: "new" })}
+      />,
+    );
+    expect(resolveRow("branch")).toHaveTextContent("feature/foo");
+  });
+
+  it("does not promise the current branch when auto mode will reuse whatever worktree it finds", () => {
+    // With no explicit choice and `worktreeMode: "auto"`, the backend walks the
+    // managed worktrees and returns the FIRST one's branch, reaching HEAD only
+    // when there is none (prepare_worktree_inner, worktree.rs). So the polled
+    // current branch is not where this launch lands, and the row that names it
+    // is guessing. The working-directory row already says the worktree is
+    // resolved at launch; the branch is resolved with it.
+    render(
+      <PreLaunchCard {...baseProps} slot={makeSlot({ branch: null, worktreeMode: "auto" })} />,
+    );
+    const branchRow = resolveRow("branch");
+    expect(branchRow).not.toHaveTextContent("main");
+    expect(branchRow).toHaveTextContent("resolved at launch");
+  });
+
+  it("still names the current branch when the launch really will use it", () => {
+    // The guard on the case above: `worktreeMode: "project"` never calls
+    // `prepareSessionWorktree` at all (launchSlotInner skips it), so the
+    // session runs in the project directory on the branch the poll returned.
+    // Naming it there is a statement, not a guess.
+    render(
+      <PreLaunchCard {...baseProps} slot={makeSlot({ branch: null, worktreeMode: "project" })} />,
+    );
+    expect(resolveRow("branch")).toHaveTextContent("main");
+  });
+
+  it("names the current branch for a brand new worktree, which is cut from HEAD", () => {
+    // The other guard: `worktreeMode: "new"` passes force_new, which skips the
+    // reuse walk entirely and detects HEAD. The current branch is the answer.
+    render(<PreLaunchCard {...baseProps} slot={makeSlot({ branch: null, worktreeMode: "new" })} />);
+    expect(resolveRow("branch")).toHaveTextContent("main");
+  });
 });
 
 /*

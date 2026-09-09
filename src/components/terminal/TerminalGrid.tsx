@@ -771,29 +771,71 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
     onSessionCountChange?.(slots.length, launchedCount);
   }, [slots, onSessionCountChange]);
 
+  /* Which repository the branch state currently describes, and which poll owns
+     the right to write it. Both exist because a repository switch starts a new
+     poll while the previous one is still in flight, and everything downstream
+     reads `branches` as though it described the current selection.
+
+     `isGitRepo` is deliberately NOT reset on a switch: it is a claim about the
+     previous repository, and replacing it with a claim about the new one that
+     nothing has checked yet only swaps one wrong answer for another. Readers
+     are told the answers are in flight by `isLoadingBranches` instead. */
+  const polledRepoPath = useRef<string | null>(null);
+  const latestBranchPoll = useRef(0);
+
   // Refresh branches callback (used by useEffect and exposed via handle)
   const refreshBranches = useCallback(() => {
     if (!effectiveRepoPath) {
+      polledRepoPath.current = null;
+      latestBranchPoll.current += 1;
+      setBranches([]);
       setIsGitRepo(false);
+      setIsLoadingBranches(false);
       return;
     }
+
+    // A switch invalidates the previous repository's list outright. Keeping it
+    // on screen "until the new one arrives" is what let the picker, and the
+    // resolves-to row through it, name a branch from a repository this session
+    // is no longer pointed at. An ordinary refresh of the SAME repository
+    // keeps its list, so the picker does not blink empty every time a branch
+    // is created or a worktree is prepared.
+    if (polledRepoPath.current !== effectiveRepoPath) {
+      polledRepoPath.current = effectiveRepoPath;
+      setBranches([]);
+    }
+
+    // Whichever poll was started last owns the state. Promises settle in
+    // whatever order the git calls happen to finish, so without this a slow
+    // answer for an abandoned repository repaints over the answer for the one
+    // actually selected, and no further poll is coming to correct it.
+    const pollId = latestBranchPoll.current + 1;
+    latestBranchPoll.current = pollId;
 
     setIsLoadingBranches(true);
     getBranchesWithWorktreeStatus(effectiveRepoPath)
       .then((branchList) => {
+        if (pollId !== latestBranchPoll.current) return;
         setBranches(branchList);
         setIsGitRepo(true);
         setIsLoadingBranches(false);
       })
       .catch((err) => {
+        if (pollId !== latestBranchPoll.current) return;
         console.error("Failed to fetch branches:", err);
         setIsGitRepo(false);
         setIsLoadingBranches(false);
       });
 
     invoke<boolean>("has_managed_worktree", { projectPath: effectiveRepoPath })
-      .then(setHasManagedWorktree)
-      .catch(() => setHasManagedWorktree(false));
+      .then((has) => {
+        if (pollId !== latestBranchPoll.current) return;
+        setHasManagedWorktree(has);
+      })
+      .catch(() => {
+        if (pollId !== latestBranchPoll.current) return;
+        setHasManagedWorktree(false);
+      });
   }, [effectiveRepoPath]);
 
   // Fetch branches when effectiveRepoPath is available
