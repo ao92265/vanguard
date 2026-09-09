@@ -28,6 +28,7 @@ import type { McpServerConfig } from "@/lib/mcp";
 import type { PluginConfig, SkillConfig } from "@/lib/plugins";
 import { type ClaudeSessionInfo, deleteClaudeSession, listClaudeSessions } from "@/lib/terminal";
 import type { PrReviewLaunch } from "@/lib/terminalPrompt";
+import type { TmuxSession } from "@/lib/tmux";
 import type { AiMode } from "@/stores/useSessionStore";
 import type { RepositoryInfo, WorkspaceType } from "@/stores/useWorkspaceStore";
 
@@ -36,6 +37,12 @@ import type { RepositoryInfo, WorkspaceType } from "@/stores/useWorkspaceStore";
 export type WorktreeMode = "auto" | "project" | "new";
 
 export interface SessionSlot {
+  /**
+   * Name of an existing tmux session this slot will attach to instead of
+   * launching an agent. When set, every other setting on the slot is inert:
+   * the pane runs whatever that session is already running.
+   */
+  attachTmux?: string | null;
   id: string;
   mode: AiMode;
   branch: string | null;
@@ -115,6 +122,9 @@ interface PreLaunchCardProps {
   selectedRepoPath?: string;
   /** Callback to change the selected repository. */
   onRepoChange?: (path: string) => void;
+  /** Live tmux sessions offered as attach targets. Empty hides the section. */
+  tmuxSessions?: TmuxSession[];
+  onAttachTmuxChange?: (name: string | null) => void;
   mcpServers: McpServerConfig[];
   skills: SkillConfig[];
   plugins: PluginConfig[];
@@ -185,6 +195,8 @@ export function PreLaunchCard({
   workspaceType,
   selectedRepoPath,
   onRepoChange,
+  tmuxSessions = [],
+  onAttachTmuxChange,
   mcpServers,
   skills,
   plugins,
@@ -1440,6 +1452,36 @@ export function PreLaunchCard({
               </div>
             )}
 
+            {tmuxSessions.length > 0 && onAttachTmuxChange && (
+              <section aria-label="Attach to tmux" className="flex flex-col gap-1.5">
+                <span className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.07em] text-maestro-muted">
+                  Attach to tmux
+                </span>
+                {tmuxSessions.map((tmux) => {
+                  const selected = slot.attachTmux === tmux.name;
+                  return (
+                    <button
+                      key={tmux.name}
+                      type="button"
+                      aria-pressed={selected}
+                      title={tmux.cwd}
+                      onClick={() => onAttachTmuxChange(selected ? null : tmux.name)}
+                      className={`flex items-center justify-between gap-2 rounded border px-3 py-2 text-left text-sm transition-colors ${
+                        selected
+                          ? "border-maestro-accent bg-maestro-card text-maestro-text"
+                          : "border-maestro-border bg-maestro-card/50 text-maestro-muted hover:border-maestro-accent/50"
+                      }`}
+                    >
+                      <span className="truncate">{tmux.name}</span>
+                      <span className="shrink-0 font-mono text-[11px] text-maestro-muted">
+                        {tmux.attached ? "attached" : "detached"}
+                      </span>
+                    </button>
+                  );
+                })}
+              </section>
+            )}
+
             {/* Launch Button */}
             <button
               type="button"
@@ -1447,7 +1489,11 @@ export function PreLaunchCard({
               className="flex min-h-11 items-center justify-center gap-2 rounded-md bg-maestro-accent px-4 py-2.5 text-sm font-medium text-maestro-on-accent transition-colors hover:bg-maestro-accent/80"
             >
               <Play size={16} fill="currentColor" />
-              {slot.resumeSessionId ? "Resume Session" : "Launch Session"}
+              {slot.attachTmux
+                ? "Attach"
+                : slot.resumeSessionId
+                  ? "Resume Session"
+                  : "Launch Session"}
             </button>
           </section>
         </div>
@@ -1461,32 +1507,44 @@ export function PreLaunchCard({
           <span className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.07em] text-maestro-muted">
             Resolves to
           </span>
-          <div className="flex flex-wrap gap-x-10 gap-y-4">
-            <ResolveRow label="runs on">this machine</ResolveRow>
-            <ResolveRow label="agent">
-              {modeConfig.label}
-              {slot.resumeSessionId ? " · resuming a previous conversation" : ""}
-            </ResolveRow>
-            <ResolveRow label="branch">
-              {/* A multi-repo workspace can hold folders that are not checkouts, and
+          {slot.attachTmux ? (
+            <div className="flex flex-col gap-2">
+              <ResolveRow label="runs on">
+                this machine, and attaches to the tmux session {slot.attachTmux}
+              </ResolveRow>
+              <p className="m-0 text-[11.5px] leading-relaxed text-maestro-muted">
+                That session keeps running whatever it is already running, so the settings above do
+                not apply to it.
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-x-10 gap-y-4">
+              <ResolveRow label="runs on">this machine</ResolveRow>
+              <ResolveRow label="agent">
+                {modeConfig.label}
+                {slot.resumeSessionId ? " · resuming a previous conversation" : ""}
+              </ResolveRow>
+              <ResolveRow label="branch">
+                {/* A multi-repo workspace can hold folders that are not checkouts, and
                   they are selectable. The workspace root is prepended as the first
                   repository and is the default selection, so guarding on
                   `isMultiRepo` alone described a branch on first open of every
                   multi-repo workspace, not in some edge case. This reads the one
                   flag the picker reads, so the two can never disagree. */}
-              {branchPickerIsGit
-                ? (resolvedBranch ?? "resolved at launch")
-                : "not a git repository"}
-            </ResolveRow>
-            <ResolveRow label="working directory">{resolvedWorkingDirectory}</ResolveRow>
-            <ResolveRow label="integrations">{integrationsSummary}</ResolveRow>
-            <ResolveRow label="images stage to">
-              this machine, until the session is given an SSH destination
-            </ResolveRow>
-            <ResolveRow label="cleanup">
-              staged images are kept for 24 hours, and removed when the session closes
-            </ResolveRow>
-          </div>
+                {branchPickerIsGit
+                  ? (resolvedBranch ?? "resolved at launch")
+                  : "not a git repository"}
+              </ResolveRow>
+              <ResolveRow label="working directory">{resolvedWorkingDirectory}</ResolveRow>
+              <ResolveRow label="integrations">{integrationsSummary}</ResolveRow>
+              <ResolveRow label="images stage to">
+                this machine, until the session is given an SSH destination
+              </ResolveRow>
+              <ResolveRow label="cleanup">
+                staged images are kept for 24 hours, and removed when the session closes
+              </ResolveRow>
+            </div>
+          )}
           <p className="m-0 text-[11.5px] leading-relaxed text-maestro-muted">
             Maestro launches sessions on this machine. There is no remote launcher, and setting an
             image destination only changes where a pasted file is written.

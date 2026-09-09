@@ -26,3 +26,22 @@ export async function listTmuxSessions(): Promise<TmuxSession[]> {
 export function tmuxNameForSession(sessionId: number): string {
   return `vanguard-${sessionId}`;
 }
+
+/**
+ * tmux forbids `:` and `.` in a session name and reads them as window and
+ * pane targets, so a name carrying either was not made by us. Mirrors the
+ * backend's `safe_session_name`: both sides refuse rather than escape.
+ */
+export function isSafeTmuxName(name: string): boolean {
+  const trimmed = name.trim();
+  return trimmed.length > 0 && trimmed.length <= 128 && /^[A-Za-z0-9_-]+$/.test(trimmed);
+}
+
+/**
+ * The command that attaches a pane to an existing tmux session, or null when
+ * the name is not one we will put on a command line. Null is a refusal, not a
+ * fallback: attaching to the wrong session is worse than not attaching.
+ */
+export function tmuxAttachCommand(name: string): string | null {
+  return isSafeTmuxName(name) ? `tmux attach -t ${name.trim()}` : null;
+}

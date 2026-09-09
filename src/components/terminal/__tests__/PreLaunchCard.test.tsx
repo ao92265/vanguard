@@ -673,3 +673,54 @@ describe("PreLaunchCard branch picker (design 1b)", () => {
     await waitFor(() => expect(onCreateBranch).toHaveBeenCalledWith("feat/x", false, "/tmp/api"));
   });
 });
+
+describe("PreLaunchCard attaching to tmux", () => {
+  const tmuxSessions = [
+    { name: "cc-aoreilly-4", cwd: "/repo/act", attached: false, created: 1, windows: 1 },
+    { name: "chatbot", cwd: "/repo/chatbot", attached: true, created: 2, windows: 2 },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("offers the live tmux sessions to attach to", () => {
+    const onAttachTmuxChange = vi.fn();
+    render(
+      <PreLaunchCard
+        {...defaultProps}
+        tmuxSessions={tmuxSessions}
+        onAttachTmuxChange={onAttachTmuxChange}
+      />,
+    );
+
+    const list = within(screen.getByRole("region", { name: "Attach to tmux" }));
+    fireEvent.click(list.getByRole("button", { name: /cc-aoreilly-4/ }));
+    expect(onAttachTmuxChange).toHaveBeenCalledWith("cc-aoreilly-4");
+  });
+
+  /* Attaching runs whatever is already in that session. The agent, branch and
+     integrations above do nothing, and a summary that kept describing them
+     would be describing a launch that is not going to happen. */
+  it("says the settings above do not apply once attaching", () => {
+    render(
+      <PreLaunchCard
+        {...defaultProps}
+        slot={makeSlot({ attachTmux: "cc-aoreilly-4" })}
+        tmuxSessions={tmuxSessions}
+        onAttachTmuxChange={vi.fn()}
+      />,
+    );
+
+    const resolves = within(screen.getByRole("region", { name: "Resolves to" }));
+    expect(resolves.getByText(/attaches to the tmux session cc-aoreilly-4/i)).toBeVisible();
+    expect(resolves.getByText(/settings above do not apply/i)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Attach" })).toBeVisible();
+  });
+
+  it("says nothing about tmux when there is no tmux running", () => {
+    render(<PreLaunchCard {...defaultProps} tmuxSessions={[]} onAttachTmuxChange={vi.fn()} />);
+
+    expect(screen.queryByRole("region", { name: "Attach to tmux" })).not.toBeInTheDocument();
+  });
+});

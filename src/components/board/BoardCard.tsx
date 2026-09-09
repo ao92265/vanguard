@@ -88,7 +88,13 @@ export function cardAction(item: BoardCardItem): { enabled: boolean; title: stri
           "Peek at what this outside session is doing. Maestro cannot show its live terminal, only the transcript trail.",
       };
     case "tmux":
-      return { enabled: true, title: "Attach to this tmux session in a pane" };
+      /* Attaching starts a pane, which is the new-session screen's job. A
+         card that looked clickable and only explained itself would be a dead
+         control, so it says where the action lives instead. */
+      return {
+        enabled: false,
+        title: "Attach to this from the New session screen, which is where panes are started",
+      };
   }
 }
 

@@ -71,9 +71,11 @@ import {
   writeStdin,
 } from "@/lib/terminal";
 import { terminalArmInitialPrompt } from "@/lib/terminalPrompt";
+import { tmuxAttachCommand } from "@/lib/tmux";
 import { useProjectColors } from "@/lib/useProjectColors";
 import { cleanupSessionWorktree, prepareSessionWorktree } from "@/lib/worktreeManager";
 import { useActivityStore } from "@/stores/useActivityStore";
+import { useBandStore } from "@/stores/useBandStore";
 import { useCliSettingsStore } from "@/stores/useCliSettingsStore";
 import { useFDAStore } from "@/stores/useFDAStore";
 import { useMcpStore } from "@/stores/useMcpStore";
@@ -1280,7 +1282,11 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
                   launchPromptOnLine = false;
                 }
               }
-              const cliCommand = launchLine?.command ?? null;
+              /* Attaching replaces the launch entirely: the pane joins a
+                 session already running its own work, so none of the agent,
+                 branch or integration settings apply to it. */
+              const attachCommand = slot.attachTmux ? tmuxAttachCommand(slot.attachTmux) : null;
+              const cliCommand = attachCommand ?? launchLine?.command ?? null;
 
               // Harvest triage launch (issue #98): arm the backend BEFORE
               // the CLI launches, so the journal-prompt injection gate is
@@ -1739,6 +1745,27 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
 
   const updateSlotCustomName = useCallback((slotId: string, name: string) => {
     setSlots((prev) => prev.map((s) => (s.id === slotId ? { ...s, customName: name } : s)));
+  }, []);
+
+  /* The band store already polls tmux for the board; reading it here keeps
+     one poll rather than a second one per grid. */
+  const tmuxSessions = useBandStore((state) => state.tmuxSessions);
+
+  const updateSlotAttachTmux = useCallback((slotId: string, name: string | null) => {
+    setSlots((prev) =>
+      prev.map((s) =>
+        s.id === slotId
+          ? {
+              ...s,
+              attachTmux: name,
+              /* Attaching runs whatever that session is already running, so a
+                 resume target would be quietly ignored. Clear it rather than
+                 leave the card promising two different launches. */
+              resumeSessionId: name ? null : s.resumeSessionId,
+            }
+          : s,
+      ),
+    );
   }, []);
 
   const updateSlotResumeSession = useCallback((slotId: string, sessionId: string | null) => {
@@ -2371,6 +2398,8 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
             onLaunch={() => launchSlot(slot.id)}
             onRemove={() => removeSlot(slot.id)}
             onResumeSessionChange={(sessionId) => updateSlotResumeSession(slot.id, sessionId)}
+            tmuxSessions={tmuxSessions}
+            onAttachTmuxChange={(name) => updateSlotAttachTmux(slot.id, name)}
             isZoomed={isSlotZoomed}
             onToggleZoom={() => handleToggleZoom(slot.id)}
           />
@@ -2429,6 +2458,8 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
       eagleTileCount,
       parkedSessionIds,
       zoomedSlotId,
+      tmuxSessions,
+      updateSlotAttachTmux,
     ],
   );
 
