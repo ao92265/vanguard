@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PreLaunchCard, type SessionSlot } from "../PreLaunchCard";
 
@@ -329,6 +329,24 @@ describe("PreLaunchCard resolves-to panel", () => {
     return screen.getByRole("region", { name: "Resolves to" });
   }
 
+  /**
+   * The value cell of ONE resolves-to row. Assert through this, not against the
+   * whole region: the rows share vocabulary, so "resolved at launch" under
+   * `branch` is also a substring of the working-directory row's "this project's
+   * managed worktree, resolved at launch". A region-wide assertion would keep
+   * passing if the branch row stopped rendering altogether.
+   *
+   * The label and the value are sibling divs inside the row wrapper.
+   */
+  function resolveRow(label: string) {
+    const labelCell = within(summary()).getByText(label);
+    const valueCell = labelCell.nextElementSibling;
+    if (!(valueCell instanceof HTMLElement)) {
+      throw new Error(`resolves-to row "${label}" has no value cell`);
+    }
+    return valueCell;
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -404,9 +422,9 @@ describe("PreLaunchCard resolves-to panel", () => {
     // is derived from `branches` and the slot, and never looks at the loading
     // flag. Left at its default so the test states one condition, not two.
     render(<PreLaunchCard {...baseProps} branches={[]} slot={makeSlot({ branch: null })} />);
-    const panel = summary();
-    expect(panel).not.toHaveTextContent("Current");
-    expect(panel).toHaveTextContent("resolved at launch");
+    const branchRow = resolveRow("branch");
+    expect(branchRow).not.toHaveTextContent("Current");
+    expect(branchRow).toHaveTextContent("resolved at launch");
   });
 
   it("does not describe a non-git folder in a multi-repo workspace as having a branch", () => {
@@ -438,9 +456,9 @@ describe("PreLaunchCard resolves-to panel", () => {
         slot={makeSlot({ branch: null })}
       />,
     );
-    const panel = summary();
-    expect(panel).toHaveTextContent("not a git repository");
-    expect(panel).not.toHaveTextContent("resolved at launch");
+    const branchRow = resolveRow("branch");
+    expect(branchRow).toHaveTextContent("not a git repository");
+    expect(branchRow).not.toHaveTextContent("resolved at launch");
   });
 
   it("states image staging and retention as this backend performs them", () => {

@@ -94,11 +94,17 @@ describe("workbench rail flow", () => {
  * predate it and are not in scope here.
  *
  * Deliberately NOT every file the port touched. `PreLaunchCard.tsx` is the
- * exception: the port authored its resolves-to panel, but the file also carries
- * four pre-existing hardcoded fills (three `text-white`, one `text-maestro-bg`)
- * from the out-of-scope bucket, so adding it would fail on work this branch
- * never claimed. It goes on this list when that bucket gets its own sweep, and
- * until then a new accent control in that file is unguarded.
+ * exception, and the reason is narrower than it first looks. Four accent fills
+ * in that file carried hardcoded `text-white` at the merge base. Three are
+ * untouched by this branch and belong to the out-of-scope bucket. The fourth is
+ * the Launch/Resume Session button, which the port itself rewrote, so it was
+ * the port's to get right: it is now `text-maestro-on-accent` like every other
+ * ported control.
+ *
+ * So the file is held out only by the three it inherited, not by anything this
+ * branch wrote. It joins this list the moment that bucket gets its own sweep.
+ * Until then a NEW accent control added to this file goes unguarded, which is
+ * the real cost of leaving it off.
  */
 const PORTED_SURFACES = [
   "src/App.tsx",

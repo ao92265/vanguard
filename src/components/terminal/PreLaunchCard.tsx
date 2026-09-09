@@ -1894,7 +1894,7 @@ export function PreLaunchCard({
           <button
             type="button"
             onClick={onLaunch}
-            className="flex min-h-11 items-center justify-center gap-2 rounded-md bg-maestro-accent px-4 py-2.5 text-sm font-medium text-maestro-bg transition-colors hover:bg-maestro-accent/80"
+            className="flex min-h-11 items-center justify-center gap-2 rounded-md bg-maestro-accent px-4 py-2.5 text-sm font-medium text-maestro-on-accent transition-colors hover:bg-maestro-accent/80"
           >
             <Play size={16} fill="currentColor" />
             {slot.resumeSessionId ? "Resume Session" : "Launch Session"}
