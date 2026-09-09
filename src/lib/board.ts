@@ -6,6 +6,7 @@ import {
   MAX_HANDOFF_ROWS,
   type RepoPrs,
 } from "@/lib/bands";
+import type { TmuxSession } from "@/lib/tmux";
 import type { PullRequestInfo } from "@/stores/useGitHubStore";
 import type { BackendSessionStatus, SessionConfig } from "@/stores/useSessionStore";
 
@@ -78,6 +79,15 @@ export type BoardCardItem =
       since: string | null;
     }
   | {
+      kind: "tmux";
+      session: TmuxSession;
+      projectName: string;
+      objective: string;
+      stageLabel: string;
+      needsYou: boolean;
+      since: string | null;
+    }
+  | {
       kind: "external";
       /** Directory the live outside-Maestro claude process is working in. */
       dir: string;
@@ -118,6 +128,12 @@ export interface BoardReviewRequests {
 }
 
 interface AssembleBoardInput {
+  /**
+   * Live tmux sessions. Alex runs most of his agents there, and the board
+   * showed none of them, so it claimed nothing was building while several
+   * were.
+   */
+  tmuxSessions?: TmuxSession[];
   sessions: SessionConfig[];
   tabs: BandTab[];
   handoffs: HandoffInfo[];
@@ -236,6 +252,7 @@ export function assembleBoard({
   handoffs,
   repoPrs,
   runs,
+  tmuxSessions = [],
   gatedRuns = [],
   reviewRequests = [],
   watermarkMs,
@@ -309,6 +326,28 @@ export function assembleBoard({
       stageLabel: "On disk",
       needsYou: false,
       since: h.lastActive,
+    });
+  }
+
+  /* Building -> tmux sessions. Mixed in with Maestro's own rather than given
+     their own column: it is all one pile of work in progress, and the card
+     says which is which. A session Maestro launched into tmux is already a
+     session row, so its tmux twin is dropped rather than counted twice. */
+  const ownedTmux = new Set(
+    sessions.map((s) => (s as { tmuxName?: string | null }).tmuxName).filter(Boolean),
+  );
+  for (const tmux of tmuxSessions) {
+    if (ownedTmux.has(tmux.name)) continue;
+    columns.building.push({
+      kind: "tmux",
+      session: tmux,
+      projectName: tmux.cwd.split("/").filter(Boolean).pop() ?? tmux.cwd,
+      objective: tmux.name,
+      stageLabel: tmux.attached ? "Attached in tmux" : "Detached in tmux",
+      /* Maestro did not start it and cannot see it asking, so claiming it
+         needs him would be an invention. */
+      needsYou: false,
+      since: tmux.created > 0 ? new Date(tmux.created * 1000).toISOString() : null,
     });
   }
 

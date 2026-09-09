@@ -56,6 +56,8 @@ export function boardCardKey(item: BoardCardItem): string {
       return `pr:${item.repoPath}#${item.pr.number}`;
     case "external":
       return `external:${item.dir}`;
+    case "tmux":
+      return `tmux:${item.session.name}`;
   }
 }
 
@@ -85,6 +87,8 @@ export function cardAction(item: BoardCardItem): { enabled: boolean; title: stri
         title:
           "Peek at what this outside session is doing. Maestro cannot show its live terminal, only the transcript trail.",
       };
+    case "tmux":
+      return { enabled: true, title: "Attach to this tmux session in a pane" };
   }
 }
 
@@ -116,6 +120,14 @@ function stageChip(item: BoardCardItem): { label: string; cls: string; mono: boo
       /* Blue means working, matching live sessions: this work IS live, it
          just is not Maestro's to open. */
       return { label: "OUTSIDE MAESTRO", cls: "bg-maestro-blue/15 text-maestro-blue", mono: false };
+    case "tmux":
+      /* Detached is still running, so it stays blue. The word carries the
+         difference rather than a colour that would read as stopped. */
+      return {
+        label: item.session.attached ? "TMUX" : "TMUX, DETACHED",
+        cls: "bg-maestro-blue/15 text-maestro-blue",
+        mono: false,
+      };
   }
 }
 
@@ -150,6 +162,8 @@ export function cardEdgeClass(item: BoardCardItem): string {
     case "external":
       /* Blue means working, matching live sessions: this work IS live. */
       return "border-l-maestro-blue";
+    case "tmux":
+      return "border-l-maestro-blue";
   }
 }
 
@@ -157,6 +171,7 @@ function cardIcon(item: BoardCardItem) {
   switch (item.kind) {
     case "session":
     case "external":
+    case "tmux":
       return TerminalSquare;
     case "handoff":
       return Play;

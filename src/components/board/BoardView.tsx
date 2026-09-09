@@ -133,6 +133,7 @@ export function BoardView({
     isRefreshing,
     watermarkMs,
     externallyActiveDirs,
+    tmuxSessions,
     refresh,
     markSeen,
   } = useBandStore();
@@ -188,6 +189,7 @@ export function BoardView({
         reviewRequests,
         watermarkMs,
         activeDirs: externallyActiveDirs,
+        tmuxSessions,
       }),
     [
       sessions,
@@ -199,6 +201,7 @@ export function BoardView({
       reviewRequests,
       watermarkMs,
       externallyActiveDirs,
+      tmuxSessions,
     ],
   );
 

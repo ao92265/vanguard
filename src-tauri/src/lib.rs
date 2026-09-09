@@ -1266,6 +1266,7 @@ pub fn run() {
             commands::claudemd::read_context_doc,
             commands::claudemd::write_context_doc,
             // Terminal sessions Maestro did not start (iTerm panes)
+            commands::tmux_sessions::list_tmux_sessions,
             commands::external_sessions::list_external_sessions,
             commands::external_sessions::focus_external_session,
             commands::external_sessions::close_external_session,

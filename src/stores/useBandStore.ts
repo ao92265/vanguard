@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
 import type { BandTab, HandoffInfo, RepoPrs } from "@/lib/bands";
 import { isClaudeSession, listDevProcesses } from "@/lib/processes";
+import { listTmuxSessions, type TmuxSession } from "@/lib/tmux";
 import type { PullRequestInfo } from "@/stores/useGitHubStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
 
@@ -91,6 +92,8 @@ interface BandDataState {
    * badge, matching this store's failure convention above.
    */
   processesError: string | null;
+  /** Live tmux sessions, the work Alex runs outside Maestro most of the time. */
+  tmuxSessions: TmuxSession[];
   /** Fetch everything once; callers drive the interval. Never rejects. */
   refresh: () => Promise<void>;
   /** "I have looked": merged PRs up to now stop counting as news. */
@@ -115,6 +118,7 @@ export const useBandStore = create<BandDataState>((set, get) => ({
   watermarkMs: initWatermark(),
   externallyActiveDirs: new Set(),
   processesError: null,
+  tmuxSessions: [],
 
   refresh: async () => {
     /* A refresh requested mid-poll is queued, not dropped: opening project B
@@ -154,6 +158,14 @@ export const useBandStore = create<BandDataState>((set, get) => ({
           set({ externallyActiveDirs: dirs, processesError: null });
         },
         (err) => set({ externallyActiveDirs: new Set<string>(), processesError: String(err) }),
+      );
+
+      /* tmux never needs permission and answers instantly, so a failure here
+         is tmux being absent rather than anything worth reporting: an empty
+         list is the honest answer. */
+      await listTmuxSessions().then(
+        (rows) => set({ tmuxSessions: rows }),
+        () => set({ tmuxSessions: [] }),
       );
 
       /* One entry per distinct repo path; a workspace can point two tabs at

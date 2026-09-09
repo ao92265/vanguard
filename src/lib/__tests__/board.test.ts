@@ -654,3 +654,55 @@ describe("assembleBoard live outside-Maestro cards (WP7)", () => {
     expect(columns.building.filter((c) => c.kind === "external").length).toBe(1);
   });
 });
+
+describe("tmux sessions on the board", () => {
+  const tmux = (name: string, cwd: string, attached = false) => ({
+    name,
+    cwd,
+    attached,
+    created: 1_757_404_975,
+    windows: 1,
+  });
+
+  /* Alex runs most of his agents in tmux. Before this the app showed none of
+     them, so the board claimed nothing was building while five were. */
+  it("shows a tmux session as work being built, named and marked as tmux", () => {
+    const columns = assembleBoard({
+      ...EMPTY,
+      tabs: TABS,
+      tmuxSessions: [tmux("cc-aoreilly-4", "/repo/act", true)],
+    });
+
+    const card = columns.building.find((c) => c.kind === "tmux");
+    expect(card).toBeDefined();
+    expect(card?.objective).toBe("cc-aoreilly-4");
+    expect(card?.stageLabel).toBe("Attached in tmux");
+    expect(card?.projectName).toBe("act");
+    // The app did not start it, so it cannot know that anyone is being asked.
+    expect(card?.needsYou).toBe(false);
+  });
+
+  it("says when nobody is attached, rather than implying someone is watching", () => {
+    const columns = assembleBoard({
+      ...EMPTY,
+      tabs: TABS,
+      tmuxSessions: [tmux("cc-aoreilly-5", "/repo/act", false)],
+    });
+
+    expect(columns.building.find((c) => c.kind === "tmux")?.stageLabel).toBe("Detached in tmux");
+  });
+
+  /* The tmux session Vanguard itself is attached to is the same work as the
+     session row, and two cards for one agent is a miscount. */
+  it("drops a tmux session that a Maestro session already stands for", () => {
+    const columns = assembleBoard({
+      ...EMPTY,
+      tabs: TABS,
+      sessions: [session(1, "Working", "/tmp/proj-a", { tmuxName: "cc-aoreilly-4" })],
+      tmuxSessions: [tmux("cc-aoreilly-4", "/repo/act", true), tmux("other", "/repo/act", false)],
+    });
+
+    const names = columns.building.filter((c) => c.kind === "tmux").map((c) => c.objective);
+    expect(names).toEqual(["other"]);
+  });
+});
