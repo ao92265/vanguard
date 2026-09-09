@@ -6,9 +6,7 @@ import {
   Code2,
   Expand,
   FolderGit2,
-  FolderOpen,
   GitBranch,
-  Loader2,
   Minimize,
   Package,
   Play,
@@ -16,7 +14,6 @@ import {
   Search,
   Server,
   Sparkles,
-  Star,
   Store,
   Terminal,
   Trash2,
@@ -118,8 +115,6 @@ interface PreLaunchCardProps {
   selectedRepoPath?: string;
   /** Callback to change the selected repository. */
   onRepoChange?: (path: string) => void;
-  /** Function to fetch branches for any repository (for lazy loading). */
-  fetchBranchesForRepo?: (repoPath: string) => Promise<BranchWithWorktreeStatus[]>;
   mcpServers: McpServerConfig[];
   skills: SkillConfig[];
   plugins: PluginConfig[];
@@ -190,7 +185,6 @@ export function PreLaunchCard({
   workspaceType,
   selectedRepoPath,
   onRepoChange,
-  fetchBranchesForRepo,
   mcpServers,
   skills,
   plugins,
@@ -227,20 +221,6 @@ export function PreLaunchCard({
   const [isCreatingBranch, setIsCreatingBranch] = useState(false);
   const [branchCreateError, setBranchCreateError] = useState<string | null>(null);
   const branchCreateInputRef = useRef<HTMLInputElement>(null);
-
-  // Multi-repo state: track expanded repos and cached branches per repo
-  const [expandedRepos, setExpandedRepos] = useState<Set<string>>(new Set());
-  const [repoBranchesCache, setRepoBranchesCache] = useState<
-    Map<string, BranchWithWorktreeStatus[]>
-  >(new Map());
-  const [loadingRepos, setLoadingRepos] = useState<Set<string>>(new Set());
-
-  // Per-repo branch creation state (for multi-repo mode)
-  const [repoCreateBranch, setRepoCreateBranch] = useState<string | null>(null); // repo path showing create input
-  const [repoNewBranchName, setRepoNewBranchName] = useState("");
-  const [repoCreatingBranch, setRepoCreatingBranch] = useState(false);
-  const [repoCreateError, setRepoCreateError] = useState<string | null>(null);
-  const repoCreateInputRef = useRef<HTMLInputElement>(null);
 
   const modeDropdownRef = useRef<HTMLDivElement>(null);
   const branchDropdownRef = useRef<HTMLDivElement>(null);
@@ -304,13 +284,6 @@ export function PreLaunchCard({
       branchCreateInputRef.current.focus();
     }
   }, [showBranchCreate]);
-
-  // Focus per-repo branch create input when shown
-  useEffect(() => {
-    if (repoCreateBranch && repoCreateInputRef.current) {
-      repoCreateInputRef.current.focus();
-    }
-  }, [repoCreateBranch]);
 
   // Helper: relative time string
   const formatRelativeTime = (isoDate: string): string => {
@@ -419,74 +392,12 @@ export function PreLaunchCard({
 
   // Check if this is a multi-repo workspace
   const isMultiRepo = workspaceType === "multi-repo" && repositories && repositories.length > 0;
-
-  // Get the display name for a repo path (folder name)
-  const getRepoDisplayName = (path: string): string => {
-    const repo = repositories?.find((r) => r.path === path);
-    return repo?.name ?? path.split("/").pop() ?? path;
-  };
-
-  // Toggle repo expansion and fetch branches if needed
-  const toggleRepoExpanded = async (repoPath: string) => {
-    const newExpanded = new Set(expandedRepos);
-
-    if (newExpanded.has(repoPath)) {
-      // Collapsing
-      newExpanded.delete(repoPath);
-      setExpandedRepos(newExpanded);
-    } else {
-      // Expanding - fetch branches if not cached
-      newExpanded.add(repoPath);
-      setExpandedRepos(newExpanded);
-
-      if (!repoBranchesCache.has(repoPath) && fetchBranchesForRepo) {
-        setLoadingRepos((prev) => new Set(prev).add(repoPath));
-        try {
-          const fetchedBranches = await fetchBranchesForRepo(repoPath);
-          setRepoBranchesCache((prev) => new Map(prev).set(repoPath, fetchedBranches));
-        } catch (err) {
-          console.error("Failed to fetch branches for repo:", err);
-        } finally {
-          setLoadingRepos((prev) => {
-            const next = new Set(prev);
-            next.delete(repoPath);
-            return next;
-          });
-        }
-      }
-    }
-  };
-
-  // Handle selecting a repo (use current branch)
-  const handleSelectRepo = (repoPath: string) => {
-    if (onRepoChange) {
-      onRepoChange(repoPath);
-    }
-    onBranchChange(null); // Use current branch
-    setBranchDropdownOpen(false);
-    setBranchSearchQuery("");
-  };
-
-  // Handle selecting a branch under a specific repo
-  const handleSelectRepoBranch = (repoPath: string, branchName: string | null) => {
-    if (onRepoChange && repoPath !== selectedRepoPath) {
-      onRepoChange(repoPath);
-    }
-    onBranchChange(branchName);
-    setBranchDropdownOpen(false);
-    setBranchSearchQuery("");
-  };
-
-  // Populate cache with current branches on mount/when branches change
-  useEffect(() => {
-    if (selectedRepoPath && branches.length > 0) {
-      setRepoBranchesCache((prev) => new Map(prev).set(selectedRepoPath, branches));
-    }
-  }, [selectedRepoPath, branches]);
-
   // Get the selected repo info for display
   const selectedRepo = repositories?.find((r) => r.path === selectedRepoPath);
-  const selectedRepoName = selectedRepo?.name ?? getRepoDisplayName(selectedRepoPath ?? "");
+  /* Whether the repository this session lands in is a checkout at all. In a
+     multi-repo workspace the selected repo answers, not `isGitRepo`: that is
+     the result of the branch poll and lags a round behind the selection. */
+  const branchPickerIsGit = isMultiRepo ? Boolean(selectedRepo?.isGitRepo) : isGitRepo;
 
   // What the launch will actually do, read off the same fields the launch
   // reads (see `launchSlotInner` in TerminalGrid). A worktree that does not
@@ -640,9 +551,9 @@ export function PreLaunchCard({
                 htmlFor="prelaunch-branch"
                 className="mb-1.5 block font-mono text-[10.5px] font-semibold uppercase tracking-[0.07em] text-maestro-muted"
               >
-                {isMultiRepo ? "Repository & Branch" : "Git Branch"}
+                Git Branch
               </label>
-              {!isGitRepo && !isMultiRepo ? (
+              {!branchPickerIsGit ? (
                 <div
                   id="prelaunch-branch"
                   className="flex items-center gap-2 rounded border border-maestro-border bg-maestro-card/50 px-3 py-2 text-sm text-maestro-muted"
@@ -663,35 +574,19 @@ export function PreLaunchCard({
                     className="flex w-full items-center justify-between gap-2 rounded border border-maestro-border bg-maestro-card px-3 py-2 text-left text-sm text-maestro-text transition-colors hover:border-maestro-accent/50 disabled:opacity-50"
                   >
                     <div className="flex min-w-0 items-center gap-2">
-                      {isMultiRepo ? (
-                        <>
-                          <FolderOpen size={14} className="shrink-0 text-maestro-purple" />
-                          <span className="truncate">{selectedRepoName}</span>
-                          {selectedRepo?.isGitRepo && (
-                            <>
-                              <span className="text-maestro-muted">/</span>
-                              <GitBranch size={12} className="shrink-0 text-maestro-accent" />
-                              <span className="truncate text-maestro-muted">{displayBranch}</span>
-                            </>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <GitBranch size={14} className="shrink-0 text-maestro-accent" />
-                          <span className="truncate">{displayBranch}</span>
-                        </>
-                      )}
-                      {selectedRepo?.isGitRepo && selectedBranchInfo?.hasWorktree && (
+                      <GitBranch size={14} className="shrink-0 text-maestro-accent" />
+                      <span className="truncate">{displayBranch}</span>
+                      {selectedBranchInfo?.hasWorktree && (
                         <span title="Worktree exists">
                           <FolderGit2 size={12} className="shrink-0 text-maestro-orange" />
                         </span>
                       )}
-                      {selectedRepo?.isGitRepo && selectedBranchInfo?.isCurrent && (
+                      {selectedBranchInfo?.isCurrent && (
                         <span className="shrink-0 rounded bg-maestro-green/20 px-1 text-[9px] text-maestro-green">
                           current
                         </span>
                       )}
-                      {selectedRepo?.isGitRepo && slot.branch && !selectedBranchInfo && (
+                      {slot.branch && !selectedBranchInfo && (
                         <span className="shrink-0 rounded bg-maestro-accent/20 px-1 text-[9px] text-maestro-accent">
                           new
                         </span>
@@ -711,9 +606,7 @@ export function PreLaunchCard({
                           />
                           <input
                             type="text"
-                            placeholder={
-                              isMultiRepo ? "Search repos and branches..." : "Search branches..."
-                            }
+                            placeholder="Search branches..."
                             value={branchSearchQuery}
                             onChange={(e) => setBranchSearchQuery(e.target.value)}
                             className="w-full rounded border border-maestro-border bg-maestro-surface py-1.5 pl-7 pr-2 text-xs text-maestro-text placeholder:text-maestro-muted focus:border-maestro-accent focus:outline-none"
@@ -722,8 +615,9 @@ export function PreLaunchCard({
                         </div>
                       </div>
 
-                      {/* Create new branch section (single-repo only — multi-repo has per-repo creation) */}
-                      {onCreateBranch && !isMultiRepo && (
+                      {/* Branch creation, in every workspace shape: the project column
+                          picks the repository, so this always acts on that one. */}
+                      {onCreateBranch && (
                         <div className="border-b border-maestro-border">
                           {showBranchCreate ? (
                             <div className="p-2">
@@ -876,510 +770,158 @@ export function PreLaunchCard({
                         </div>
                       )}
 
-                      {/* Multi-repo view with expandable repos */}
-                      {isMultiRepo ? (
-                        <div className="max-h-64 overflow-y-auto">
-                          {repositories
-                            ?.filter(
-                              (repo) =>
-                                !branchSearchQuery ||
-                                repo.name.toLowerCase().includes(branchSearchQuery.toLowerCase()) ||
-                                repoBranchesCache
-                                  .get(repo.path)
-                                  ?.some((b) =>
-                                    b.name.toLowerCase().includes(branchSearchQuery.toLowerCase()),
-                                  ),
-                            )
-                            .map((repo) => {
-                              const isSelected = repo.path === selectedRepoPath;
-                              const isExpanded = expandedRepos.has(repo.path);
-                              const isLoading = loadingRepos.has(repo.path);
-                              const repoBranches = repoBranchesCache.get(repo.path) ?? [];
-                              const repoLocalBranches = repoBranches.filter((b) => !b.isRemote);
-                              const currentRepoBranch = repoBranches.find((b) => b.isCurrent);
+                      <div className="max-h-48 overflow-y-auto">
+                        {/* Current branch option - only show if not searching or if it matches */}
+                        {(!branchSearchQuery ||
+                          "use current branch".includes(branchSearchQuery.toLowerCase())) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onBranchChange(null);
+                              setBranchDropdownOpen(false);
+                              setBranchSearchQuery("");
+                            }}
+                            className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
+                              slot.branch === null
+                                ? "bg-maestro-accent/10 text-maestro-text"
+                                : "text-maestro-muted hover:bg-maestro-surface hover:text-maestro-text"
+                            }`}
+                          >
+                            <GitBranch size={14} />
+                            <span>Use current branch</span>
+                          </button>
+                        )}
 
-                              // Filter branches by search query
-                              const filteredBranches = branchSearchQuery
-                                ? repoLocalBranches.filter((b) =>
-                                    b.name.toLowerCase().includes(branchSearchQuery.toLowerCase()),
-                                  )
-                                : repoLocalBranches;
-
-                              return (
-                                <div
-                                  key={repo.path}
-                                  className={isSelected ? "bg-maestro-accent/5" : ""}
-                                >
-                                  {/* Repo header row */}
-                                  <div className="flex items-center gap-1 px-2 py-1.5 hover:bg-maestro-surface">
-                                    {/* Expand/collapse button — only for git repos */}
-                                    {repo.isGitRepo ? (
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          toggleRepoExpanded(repo.path);
-                                        }}
-                                        className="shrink-0 rounded p-0.5 hover:bg-maestro-border/40"
-                                      >
-                                        {isLoading ? (
-                                          <Loader2
-                                            size={12}
-                                            className="animate-spin text-maestro-muted"
-                                          />
-                                        ) : isExpanded ? (
-                                          <ChevronDown size={12} className="text-maestro-muted" />
-                                        ) : (
-                                          <ChevronRight size={12} className="text-maestro-muted" />
-                                        )}
-                                      </button>
-                                    ) : (
-                                      <span className="inline-block w-[20px]" />
-                                    )}
-                                    {/* Repo select button */}
-                                    <button
-                                      type="button"
-                                      onClick={() => handleSelectRepo(repo.path)}
-                                      className="flex flex-1 items-center gap-2 text-left text-sm"
-                                    >
-                                      <FolderOpen
-                                        size={14}
-                                        className={`shrink-0 ${repo.isGitRepo ? "text-maestro-purple" : "text-maestro-muted"}`}
-                                      />
-                                      <span
-                                        className={`flex-1 truncate ${isSelected ? "text-maestro-text font-medium" : "text-maestro-muted"}`}
-                                      >
-                                        {repo.name}
-                                      </span>
-                                      {repo.isGitRepo && currentRepoBranch && (
-                                        <span className="text-[10px] text-maestro-muted">
-                                          {currentRepoBranch.name}
-                                        </span>
-                                      )}
-                                      {!repo.isGitRepo && (
-                                        <span className="text-[10px] text-maestro-muted/60">
-                                          no git
-                                        </span>
-                                      )}
-                                      {isSelected && (
-                                        <Check size={12} className="shrink-0 text-maestro-accent" />
-                                      )}
-                                    </button>
-                                  </div>
-
-                                  {/* Expanded branches — only for git repos */}
-                                  {repo.isGitRepo && isExpanded && !isLoading && (
-                                    <div className="ml-5 border-l border-maestro-border/40 pl-2">
-                                      {/* Use current branch option */}
-                                      <button
-                                        type="button"
-                                        onClick={() => handleSelectRepoBranch(repo.path, null)}
-                                        className={`flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs transition-colors hover:bg-maestro-surface ${
-                                          isSelected && slot.branch === null
-                                            ? "bg-maestro-accent/10 text-maestro-text"
-                                            : "text-maestro-muted"
-                                        }`}
-                                      >
-                                        <GitBranch size={12} />
-                                        <span>Use current branch</span>
-                                        {currentRepoBranch && (
-                                          <span className="text-[10px] text-maestro-muted/60">
-                                            ({currentRepoBranch.name})
-                                          </span>
-                                        )}
-                                      </button>
-
-                                      {/* Branch list */}
-                                      {filteredBranches.map((branch) => {
-                                        const isBranchSelected =
-                                          isSelected && slot.branch === branch.name;
-                                        return (
-                                          <button
-                                            key={branch.name}
-                                            type="button"
-                                            onClick={() =>
-                                              handleSelectRepoBranch(repo.path, branch.name)
-                                            }
-                                            className={`flex w-full items-center gap-2 px-2 py-1 text-left text-xs transition-colors hover:bg-maestro-surface ${
-                                              isBranchSelected
-                                                ? "bg-maestro-accent/10 text-maestro-text"
-                                                : "text-maestro-muted"
-                                            }`}
-                                          >
-                                            <GitBranch size={11} />
-                                            <span className="flex-1 truncate">{branch.name}</span>
-                                            {branch.isCurrent && (
-                                              <Star
-                                                size={10}
-                                                className="shrink-0 text-maestro-green"
-                                                fill="currentColor"
-                                              />
-                                            )}
-                                            {branch.hasWorktree && (
-                                              <FolderGit2
-                                                size={10}
-                                                className="shrink-0 text-maestro-orange"
-                                              />
-                                            )}
-                                          </button>
-                                        );
-                                      })}
-
-                                      {/* Create new branch option in multi-repo */}
-                                      {branchSearchQuery.trim() &&
-                                        isValidBranchName(branchSearchQuery.trim()) &&
-                                        !repoBranches.some(
-                                          (b) => b.name === branchSearchQuery.trim(),
-                                        ) && (
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              handleSelectRepoBranch(
-                                                repo.path,
-                                                branchSearchQuery.trim(),
-                                              )
-                                            }
-                                            className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs text-maestro-accent transition-colors hover:bg-maestro-accent/10"
-                                          >
-                                            <Plus size={11} />
-                                            <span className="truncate">
-                                              Create{" "}
-                                              <span className="font-medium">
-                                                {branchSearchQuery.trim()}
-                                              </span>
-                                            </span>
-                                          </button>
-                                        )}
-
-                                      {filteredBranches.length === 0 &&
-                                        repoBranches.length > 0 &&
-                                        branchSearchQuery &&
-                                        !isValidBranchName(branchSearchQuery.trim()) && (
-                                          <div className="px-2 py-1 text-[10px] text-maestro-muted">
-                                            No matching branches
-                                          </div>
-                                        )}
-
-                                      {/* Per-repo branch creation */}
-                                      {onCreateBranch &&
-                                        (repoCreateBranch === repo.path ? (
-                                          <div className="border-t border-maestro-border/40 px-2 py-1.5">
-                                            <div className="space-y-1.5">
-                                              <input
-                                                ref={repoCreateInputRef}
-                                                type="text"
-                                                value={repoNewBranchName}
-                                                onChange={(e) => {
-                                                  setRepoNewBranchName(e.target.value);
-                                                  setRepoCreateError(null);
-                                                }}
-                                                onKeyDown={(e) => {
-                                                  if (e.key === "Enter") {
-                                                    e.preventDefault();
-                                                    const trimmed = repoNewBranchName.trim();
-                                                    if (!trimmed || repoCreatingBranch) return;
-                                                    if (!/^[a-zA-Z0-9._/-]+$/.test(trimmed)) {
-                                                      setRepoCreateError("Invalid name.");
-                                                      return;
-                                                    }
-                                                    setRepoCreatingBranch(true);
-                                                    setRepoCreateError(null);
-                                                    onCreateBranch(trimmed, false, repo.path)
-                                                      .then(() => {
-                                                        handleSelectRepoBranch(repo.path, trimmed);
-                                                        setRepoNewBranchName("");
-                                                        setRepoCreateBranch(null);
-                                                      })
-                                                      .catch((err) => {
-                                                        setRepoCreateError(
-                                                          err instanceof Error
-                                                            ? err.message
-                                                            : "Failed to create branch",
-                                                        );
-                                                      })
-                                                      .finally(() => setRepoCreatingBranch(false));
-                                                  } else if (e.key === "Escape") {
-                                                    e.preventDefault();
-                                                    setRepoCreateBranch(null);
-                                                    setRepoNewBranchName("");
-                                                    setRepoCreateError(null);
-                                                  }
-                                                }}
-                                                placeholder="feature/my-branch"
-                                                className="w-full rounded border border-maestro-border bg-maestro-surface px-2 py-1 text-xs text-maestro-text placeholder:text-maestro-muted/50 focus:border-maestro-accent focus:outline-none"
-                                                disabled={repoCreatingBranch}
-                                                onClick={(e) => e.stopPropagation()}
-                                              />
-                                              <div className="flex justify-end gap-1.5">
-                                                <button
-                                                  type="button"
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    const trimmed = repoNewBranchName.trim();
-                                                    if (!trimmed || repoCreatingBranch) return;
-                                                    if (!/^[a-zA-Z0-9._/-]+$/.test(trimmed)) {
-                                                      setRepoCreateError("Invalid name.");
-                                                      return;
-                                                    }
-                                                    setRepoCreatingBranch(true);
-                                                    setRepoCreateError(null);
-                                                    onCreateBranch(trimmed, false, repo.path)
-                                                      .then(() => {
-                                                        setRepoNewBranchName("");
-                                                        setRepoCreateBranch(null);
-                                                      })
-                                                      .catch((err) => {
-                                                        setRepoCreateError(
-                                                          err instanceof Error
-                                                            ? err.message
-                                                            : "Failed to create branch",
-                                                        );
-                                                      })
-                                                      .finally(() => setRepoCreatingBranch(false));
-                                                  }}
-                                                  disabled={
-                                                    !repoNewBranchName.trim() || repoCreatingBranch
-                                                  }
-                                                  className="rounded border border-maestro-border bg-maestro-surface px-2 py-1 text-xs font-medium text-maestro-text disabled:opacity-50 hover:bg-maestro-border/40"
-                                                  title="Create branch without selecting"
-                                                >
-                                                  {repoCreatingBranch ? "..." : "Create"}
-                                                </button>
-                                                <button
-                                                  type="button"
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    const trimmed = repoNewBranchName.trim();
-                                                    if (!trimmed || repoCreatingBranch) return;
-                                                    if (!/^[a-zA-Z0-9._/-]+$/.test(trimmed)) {
-                                                      setRepoCreateError("Invalid name.");
-                                                      return;
-                                                    }
-                                                    setRepoCreatingBranch(true);
-                                                    setRepoCreateError(null);
-                                                    onCreateBranch(trimmed, false, repo.path)
-                                                      .then(() => {
-                                                        handleSelectRepoBranch(repo.path, trimmed);
-                                                        setRepoNewBranchName("");
-                                                        setRepoCreateBranch(null);
-                                                      })
-                                                      .catch((err) => {
-                                                        setRepoCreateError(
-                                                          err instanceof Error
-                                                            ? err.message
-                                                            : "Failed to create branch",
-                                                        );
-                                                      })
-                                                      .finally(() => setRepoCreatingBranch(false));
-                                                  }}
-                                                  disabled={
-                                                    !repoNewBranchName.trim() || repoCreatingBranch
-                                                  }
-                                                  className="rounded bg-maestro-accent px-2 py-1 text-xs font-medium text-white disabled:opacity-50"
-                                                  title="Create branch and select it"
-                                                >
-                                                  {repoCreatingBranch ? "..." : "Create & Select"}
-                                                </button>
-                                              </div>
-                                            </div>
-                                            {repoCreateError && (
-                                              <div className="mt-1 text-[10px] text-maestro-red">
-                                                {repoCreateError}
-                                              </div>
-                                            )}
-                                          </div>
-                                        ) : (
-                                          <button
-                                            type="button"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              setRepoCreateBranch(repo.path);
-                                              setRepoNewBranchName("");
-                                              setRepoCreateError(null);
-                                            }}
-                                            className="flex w-full items-center gap-2 border-t border-maestro-border/40 px-2 py-1.5 text-xs text-maestro-accent transition-colors hover:bg-maestro-accent/10"
-                                          >
-                                            <Plus size={11} />
-                                            <span>Create branch</span>
-                                          </button>
-                                        ))}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-
-                          {/* No repos match message */}
-                          {branchSearchQuery &&
-                            repositories?.filter(
-                              (repo) =>
-                                repo.name.toLowerCase().includes(branchSearchQuery.toLowerCase()) ||
-                                repoBranchesCache
-                                  .get(repo.path)
-                                  ?.some((b) =>
-                                    b.name.toLowerCase().includes(branchSearchQuery.toLowerCase()),
-                                  ),
-                            ).length === 0 && (
-                              <div className="px-3 py-2 text-center text-xs text-maestro-muted">
-                                No repos or branches match "{branchSearchQuery}"
-                              </div>
-                            )}
-                        </div>
-                      ) : (
-                        /* Single-repo branch list (original behavior) */
-                        <div className="max-h-48 overflow-y-auto">
-                          {/* Current branch option - only show if not searching or if it matches */}
-                          {(!branchSearchQuery ||
-                            "use current branch".includes(branchSearchQuery.toLowerCase())) && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                onBranchChange(null);
-                                setBranchDropdownOpen(false);
-                                setBranchSearchQuery("");
-                              }}
-                              className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
-                                slot.branch === null
-                                  ? "bg-maestro-accent/10 text-maestro-text"
-                                  : "text-maestro-muted hover:bg-maestro-surface hover:text-maestro-text"
-                              }`}
-                            >
-                              <GitBranch size={14} />
-                              <span>Use current branch</span>
-                            </button>
-                          )}
-
-                          {/* Local branches */}
-                          {localBranches.filter((b) =>
-                            b.name.toLowerCase().includes(branchSearchQuery.toLowerCase()),
-                          ).length > 0 && (
-                            <>
-                              <div className="border-t border-maestro-border px-3 py-1 text-[9px] font-medium uppercase tracking-wide text-maestro-muted">
-                                Local
-                              </div>
-                              {localBranches
-                                .filter((b) =>
-                                  b.name.toLowerCase().includes(branchSearchQuery.toLowerCase()),
-                                )
-                                .map((branch) => (
-                                  <button
-                                    key={branch.name}
-                                    type="button"
-                                    onClick={() => {
-                                      onBranchChange(branch.name);
-                                      setBranchDropdownOpen(false);
-                                      setBranchSearchQuery("");
-                                    }}
-                                    className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
-                                      slot.branch === branch.name
-                                        ? "bg-maestro-accent/10 text-maestro-text"
-                                        : "text-maestro-muted hover:bg-maestro-surface hover:text-maestro-text"
-                                    }`}
-                                  >
-                                    <GitBranch size={14} />
-                                    <span className="truncate">{branch.name}</span>
-                                    {branch.hasWorktree && (
-                                      <span title="Worktree exists">
-                                        <FolderGit2
-                                          size={12}
-                                          className="shrink-0 text-maestro-orange"
-                                        />
-                                      </span>
-                                    )}
-                                    {branch.isCurrent && (
-                                      <span className="shrink-0 rounded bg-maestro-green/20 px-1 text-[9px] text-maestro-green">
-                                        current
-                                      </span>
-                                    )}
-                                  </button>
-                                ))}
-                            </>
-                          )}
-
-                          {/* Remote branches */}
-                          {remoteBranches.filter((b) =>
-                            b.name.toLowerCase().includes(branchSearchQuery.toLowerCase()),
-                          ).length > 0 && (
-                            <>
-                              <div className="border-t border-maestro-border px-3 py-1 text-[9px] font-medium uppercase tracking-wide text-maestro-muted">
-                                Remote
-                              </div>
-                              {remoteBranches
-                                .filter((b) =>
-                                  b.name.toLowerCase().includes(branchSearchQuery.toLowerCase()),
-                                )
-                                .map((branch) => (
-                                  <button
-                                    key={branch.name}
-                                    type="button"
-                                    onClick={() => {
-                                      onBranchChange(branch.name);
-                                      setBranchDropdownOpen(false);
-                                      setBranchSearchQuery("");
-                                    }}
-                                    className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
-                                      slot.branch === branch.name
-                                        ? "bg-maestro-accent/10 text-maestro-text"
-                                        : "text-maestro-muted hover:bg-maestro-surface hover:text-maestro-text"
-                                    }`}
-                                  >
-                                    <GitBranch size={14} className="text-maestro-muted/60" />
-                                    <span className="truncate">{branch.name}</span>
-                                    {branch.hasWorktree && (
-                                      <span title="Worktree exists">
-                                        <FolderGit2
-                                          size={12}
-                                          className="shrink-0 text-maestro-orange"
-                                        />
-                                      </span>
-                                    )}
-                                  </button>
-                                ))}
-                            </>
-                          )}
-
-                          {/* Create new branch option - show when query doesn't exactly match any branch */}
-                          {branchSearchQuery.trim() &&
-                            isValidBranchName(branchSearchQuery.trim()) &&
-                            !branches.some((b) => b.name === branchSearchQuery.trim()) && (
-                              <>
-                                <div className="border-t border-maestro-border px-3 py-1 text-[9px] font-medium uppercase tracking-wide text-maestro-muted">
-                                  Create
-                                </div>
+                        {/* Local branches */}
+                        {localBranches.filter((b) =>
+                          b.name.toLowerCase().includes(branchSearchQuery.toLowerCase()),
+                        ).length > 0 && (
+                          <>
+                            <div className="border-t border-maestro-border px-3 py-1 text-[9px] font-medium uppercase tracking-wide text-maestro-muted">
+                              Local
+                            </div>
+                            {localBranches
+                              .filter((b) =>
+                                b.name.toLowerCase().includes(branchSearchQuery.toLowerCase()),
+                              )
+                              .map((branch) => (
                                 <button
+                                  key={branch.name}
                                   type="button"
                                   onClick={() => {
-                                    onBranchChange(branchSearchQuery.trim());
+                                    onBranchChange(branch.name);
                                     setBranchDropdownOpen(false);
                                     setBranchSearchQuery("");
                                   }}
-                                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-maestro-accent transition-colors hover:bg-maestro-accent/10"
+                                  className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
+                                    slot.branch === branch.name
+                                      ? "bg-maestro-accent/10 text-maestro-text"
+                                      : "text-maestro-muted hover:bg-maestro-surface hover:text-maestro-text"
+                                  }`}
                                 >
-                                  <Plus size={14} />
-                                  <span className="truncate">
-                                    Create{" "}
-                                    <span className="font-medium">{branchSearchQuery.trim()}</span>
-                                  </span>
+                                  <GitBranch size={14} />
+                                  <span className="truncate">{branch.name}</span>
+                                  {branch.hasWorktree && (
+                                    <span title="Worktree exists">
+                                      <FolderGit2
+                                        size={12}
+                                        className="shrink-0 text-maestro-orange"
+                                      />
+                                    </span>
+                                  )}
+                                  {branch.isCurrent && (
+                                    <span className="shrink-0 rounded bg-maestro-green/20 px-1 text-[9px] text-maestro-green">
+                                      current
+                                    </span>
+                                  )}
                                 </button>
-                              </>
-                            )}
+                              ))}
+                          </>
+                        )}
 
-                          {/* No results message */}
-                          {branchSearchQuery &&
-                            !isValidBranchName(branchSearchQuery.trim()) &&
-                            localBranches.filter((b) =>
-                              b.name.toLowerCase().includes(branchSearchQuery.toLowerCase()),
-                            ).length === 0 &&
-                            remoteBranches.filter((b) =>
-                              b.name.toLowerCase().includes(branchSearchQuery.toLowerCase()),
-                            ).length === 0 &&
-                            !"use current branch".includes(branchSearchQuery.toLowerCase()) && (
-                              <div className="px-3 py-2 text-center text-xs text-maestro-muted">
-                                No branches match "{branchSearchQuery}"
+                        {/* Remote branches */}
+                        {remoteBranches.filter((b) =>
+                          b.name.toLowerCase().includes(branchSearchQuery.toLowerCase()),
+                        ).length > 0 && (
+                          <>
+                            <div className="border-t border-maestro-border px-3 py-1 text-[9px] font-medium uppercase tracking-wide text-maestro-muted">
+                              Remote
+                            </div>
+                            {remoteBranches
+                              .filter((b) =>
+                                b.name.toLowerCase().includes(branchSearchQuery.toLowerCase()),
+                              )
+                              .map((branch) => (
+                                <button
+                                  key={branch.name}
+                                  type="button"
+                                  onClick={() => {
+                                    onBranchChange(branch.name);
+                                    setBranchDropdownOpen(false);
+                                    setBranchSearchQuery("");
+                                  }}
+                                  className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
+                                    slot.branch === branch.name
+                                      ? "bg-maestro-accent/10 text-maestro-text"
+                                      : "text-maestro-muted hover:bg-maestro-surface hover:text-maestro-text"
+                                  }`}
+                                >
+                                  <GitBranch size={14} className="text-maestro-muted/60" />
+                                  <span className="truncate">{branch.name}</span>
+                                  {branch.hasWorktree && (
+                                    <span title="Worktree exists">
+                                      <FolderGit2
+                                        size={12}
+                                        className="shrink-0 text-maestro-orange"
+                                      />
+                                    </span>
+                                  )}
+                                </button>
+                              ))}
+                          </>
+                        )}
+
+                        {/* Create new branch option - show when query doesn't exactly match any branch */}
+                        {branchSearchQuery.trim() &&
+                          isValidBranchName(branchSearchQuery.trim()) &&
+                          !branches.some((b) => b.name === branchSearchQuery.trim()) && (
+                            <>
+                              <div className="border-t border-maestro-border px-3 py-1 text-[9px] font-medium uppercase tracking-wide text-maestro-muted">
+                                Create
                               </div>
-                            )}
-                        </div>
-                      )}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onBranchChange(branchSearchQuery.trim());
+                                  setBranchDropdownOpen(false);
+                                  setBranchSearchQuery("");
+                                }}
+                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-maestro-accent transition-colors hover:bg-maestro-accent/10"
+                              >
+                                <Plus size={14} />
+                                <span className="truncate">
+                                  Create{" "}
+                                  <span className="font-medium">{branchSearchQuery.trim()}</span>
+                                </span>
+                              </button>
+                            </>
+                          )}
+
+                        {/* No results message */}
+                        {branchSearchQuery &&
+                          !isValidBranchName(branchSearchQuery.trim()) &&
+                          localBranches.filter((b) =>
+                            b.name.toLowerCase().includes(branchSearchQuery.toLowerCase()),
+                          ).length === 0 &&
+                          remoteBranches.filter((b) =>
+                            b.name.toLowerCase().includes(branchSearchQuery.toLowerCase()),
+                          ).length === 0 &&
+                          !"use current branch".includes(branchSearchQuery.toLowerCase()) && (
+                            <div className="px-3 py-2 text-center text-xs text-maestro-muted">
+                              No branches match "{branchSearchQuery}"
+                            </div>
+                          )}
+                      </div>
                     </div>
                   )}
                 </>

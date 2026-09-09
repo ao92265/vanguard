@@ -2351,7 +2351,6 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
             workspaceType={workspaceType}
             selectedRepoPath={effectiveRepoPath}
             onRepoChange={onRepoChange}
-            fetchBranchesForRepo={getBranchesWithWorktreeStatus}
             mcpServers={mcpServers}
             skills={skills}
             plugins={plugins}

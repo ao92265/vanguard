@@ -546,3 +546,52 @@ describe("PreLaunchCard layout (design 1b)", () => {
     expect(within(resolves).getByText(/There is no remote launcher/)).toBeVisible();
   });
 });
+
+/*
+ * The project column owns which repository a session lands in, so the branch
+ * control below it picks a branch and nothing else.
+ */
+describe("PreLaunchCard branch picker (design 1b)", () => {
+  const repos = [
+    { path: "/tmp/api", name: "api", isGitRepo: true, currentBranch: "main", remoteUrl: null },
+    { path: "/tmp/web", name: "web", isGitRepo: true, currentBranch: "release", remoteUrl: null },
+  ];
+  const multiProps = {
+    ...defaultProps,
+    workspaceType: "multi-repo" as const,
+    repositories: repos,
+    selectedRepoPath: "/tmp/api",
+    onRepoChange: vi.fn(),
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function openPicker() {
+    fireEvent.click(screen.getByLabelText("Git Branch"));
+  }
+
+  it("calls the control Git Branch whatever shape the workspace is", () => {
+    render(<PreLaunchCard {...multiProps} />);
+
+    expect(screen.getByText("Git Branch")).toBeVisible();
+    expect(screen.queryByText("Repository & Branch")).not.toBeInTheDocument();
+  });
+
+  it("offers no way to change repository from the branch picker", () => {
+    render(<PreLaunchCard {...multiProps} />);
+    openPicker();
+
+    const settings = within(screen.getByRole("region", { name: "Session settings" }));
+    expect(settings.queryByText("web")).not.toBeInTheDocument();
+    expect(settings.getByText("develop")).toBeVisible();
+  });
+
+  it("still offers branch creation in a multi-repo workspace", () => {
+    render(<PreLaunchCard {...multiProps} onCreateBranch={vi.fn()} />);
+    openPicker();
+
+    expect(screen.getByText("Create New Branch")).toBeVisible();
+  });
+});
