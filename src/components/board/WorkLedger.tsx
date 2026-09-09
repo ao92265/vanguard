@@ -170,12 +170,10 @@ export function WorkLedger({
       aria-label="Work ledger"
       className="flex min-h-0 flex-1 flex-col overflow-hidden px-[34px] pt-[26px]"
     >
+      {/* No heading here: the chrome above already titles the screen "Ledger",
+          and the mockup carries one title per screen. The section keeps its
+          accessible name from aria-label, so the landmark is still findable. */}
       <div className="mb-1.5 flex items-baseline gap-3">
-        {/* h2, not h1: BoardView's shared header titles the screen "Ledger"
-            above this section. */}
-        <h2 className="font-mono text-[13px] font-semibold uppercase tracking-[0.09em] text-maestro-muted">
-          Work ledger
-        </h2>
         <div className="flex-1" />
         <span className="font-mono text-[11.5px] text-maestro-muted">
           {LEDGER_KIND_ORDER.map((kind) => KIND_STYLE[kind].label.toLowerCase()).join(" · ")}

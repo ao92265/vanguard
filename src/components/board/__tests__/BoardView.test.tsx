@@ -575,7 +575,9 @@ describe("BoardView", () => {
     cleanup();
     renderBoard({ mode: "ledger" });
     expect(screen.getByRole("heading", { level: 1, name: "Ledger" })).toBeVisible();
-    expect(screen.getByRole("heading", { level: 2, name: "Work ledger" })).toBeVisible();
+    /* One title per screen: the chrome's "Ledger" is it. The panel below must
+       not repeat it as a second visible heading (design 1b, ruling 6). */
+    expect(screen.queryByRole("heading", { name: /work ledger/i })).not.toBeInTheDocument();
   });
 
   it("shows the board's stages as lanes, and the ledger only in ledger mode", () => {
