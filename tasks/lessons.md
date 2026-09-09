@@ -37,6 +37,13 @@
   any other way held undefined and were counted as real projects. → **Fix**: compare
   with `== null` whenever a value reaches the code from more than one construction
   path.
+- **[2026-09-09] Passing a derived value as a prop makes a test silently vacuous**: a
+  new test set `isMultiRepo={true}`, but the component derives that from
+  `workspaceType` and `repositories` and never reads a prop by that name. JSX spread
+  relaxes the excess-property check, so tsc stayed green, and the test passed against
+  the unfixed code. → **Fix**: mutate the fix away and confirm the test goes red
+  before believing it. On this branch that one step caught what tsc, biome and 1568
+  other passing tests did not.
 - **[2026-09-09] A dead branch keeps its props alive**: removing the unreachable
   toolbar layout dropped seven prop passes that looked live at the call site. They
   were all reachable elsewhere, but only reading each consumer proved it. → **Fix**:
