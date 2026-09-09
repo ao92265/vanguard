@@ -19,12 +19,45 @@ export async function listTmuxSessions(): Promise<TmuxSession[]> {
 }
 
 /**
- * The tmux session name Maestro gives work it launches itself. Kept here
- * rather than at the call site so the launcher and anything matching sessions
- * back to rows read the same rule.
+ * The tmux session name Maestro gives work it launches itself.
+ *
+ * The random half is not decoration. Session ids come from an in-process
+ * counter that restarts at 1 every time the app launches, while the whole
+ * point of these tmux sessions is that they outlive the app. A name built
+ * from the id alone therefore points at the PREVIOUS run's work: the first
+ * launch after a restart would join last night's agent instead of starting
+ * its own, and closing that pane would kill it. The suffix makes every launch
+ * a name nothing else holds.
  */
-export function tmuxNameForSession(sessionId: number): string {
-  return `vanguard-${sessionId}`;
+export function newTmuxSessionName(sessionId: number): string {
+  const bytes = new Uint8Array(3);
+  crypto.getRandomValues(bytes);
+  const suffix = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `vanguard-${sessionId}-${suffix}`;
+}
+
+/**
+ * The tmux session each launched session is running in, for as long as this
+ * app run lasts.
+ *
+ * Held here rather than passed through every close path: `killSession` is the
+ * one wrapper they all go through, and a name it has to be handed is a name
+ * whichever call site nobody remembered would fail to hand it, orphaning an
+ * agent. It is deliberately not persisted. A name from a previous run is a
+ * name this run must never kill.
+ */
+const launchedTmuxNames = new Map<number, string>();
+
+export function rememberTmuxSession(sessionId: number, name: string): void {
+  launchedTmuxNames.set(sessionId, name);
+}
+
+export function tmuxSessionFor(sessionId: number): string | null {
+  return launchedTmuxNames.get(sessionId) ?? null;
+}
+
+export function forgetTmuxSession(sessionId: number): void {
+  launchedTmuxNames.delete(sessionId);
 }
 
 /**
@@ -47,13 +80,18 @@ export function tmuxAttachCommand(name: string): string | null {
 }
 
 /**
- * The line that puts a launch inside tmux: attach to that session if it
- * somehow exists, otherwise create it. Typed into the shell before the agent
- * command, so the agent ends up running inside tmux and survives the app
- * closing.
+ * The line that creates the tmux session a launch runs in. Typed into the
+ * shell before the agent command, so the agent ends up running inside tmux
+ * and survives the app closing.
+ *
+ * Deliberately no `-A`. That flag silently JOINS a session already carrying
+ * the name instead of failing, which turns every name collision into the app
+ * typing a fresh agent command line into somebody else's running agent. With
+ * a name nothing else holds, a collision is a real fault and erroring is the
+ * honest outcome.
  */
-export function tmuxLaunchCommand(sessionId: number): string {
-  return `tmux new-session -A -s ${tmuxNameForSession(sessionId)}`;
+export function tmuxLaunchCommand(name: string): string {
+  return `tmux new-session -s ${name}`;
 }
 
 /** Whether tmux is installed at all. An empty session list cannot answer it. */
@@ -100,6 +138,6 @@ export async function waitForTmuxSession(
  * existing tmux session, and creating one first would nest tmux inside tmux,
  * which tmux itself refuses.
  */
-export function tmuxPreLaunchLine(attaching: boolean, sessionId: number): string | null {
-  return attaching ? null : tmuxLaunchCommand(sessionId);
+export function tmuxPreLaunchLine(attaching: boolean, name: string): string | null {
+  return attaching ? null : tmuxLaunchCommand(name);
 }

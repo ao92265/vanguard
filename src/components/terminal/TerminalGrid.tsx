@@ -72,9 +72,10 @@ import {
 } from "@/lib/terminal";
 import { terminalArmInitialPrompt } from "@/lib/terminalPrompt";
 import {
+  newTmuxSessionName,
+  rememberTmuxSession,
   tmuxAttachCommand,
   tmuxAvailable,
-  tmuxNameForSession,
   tmuxPreLaunchLine,
   waitForTmuxSession,
 } from "@/lib/tmux";
@@ -1292,7 +1293,25 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
                  session already running its own work, so none of the agent,
                  branch or integration settings apply to it. */
               const attachCommand = slot.attachTmux ? tmuxAttachCommand(slot.attachTmux) : null;
+              /* A refused attach must NOT fall through to a launch. It used
+                 to: `attachCommand ?? launchLine?.command` turned a documented
+                 refusal into a fallback that ran a full agent, with the slot's
+                 branch and working directory, in a pane the confirmation
+                 screen had just told him those settings did not apply to. */
+              if (slot.attachTmux && !attachCommand) {
+                setError(
+                  `Could not attach to the tmux session "${slot.attachTmux}": its name is not one Vanguard will put on a command line. Nothing was launched.`,
+                );
+                return;
+              }
               const cliCommand = attachCommand ?? launchLine?.command ?? null;
+              /* Nothing to type is not the same as typing nothing: without
+                 this the launch wrote the literal string "null" into the
+                 shell and called it a start. */
+              if (!cliCommand) {
+                setError("There was no command to launch, so nothing was started in this pane.");
+                return;
+              }
 
               // Harvest triage launch (issue #98): arm the backend BEFORE
               // the CLI launches, so the journal-prompt injection gate is
@@ -1346,11 +1365,21 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
                  is a real check that the session exists, not a pause and a
                  hope: typing the agent command into a shell that is still
                  becoming tmux would lose it. */
-              const tmuxLine = tmuxPreLaunchLine(Boolean(attachCommand), sessionId);
+              const tmuxName = newTmuxSessionName(sessionId);
+              const tmuxLine = tmuxPreLaunchLine(Boolean(attachCommand), tmuxName);
               if (tmuxLine && (await tmuxAvailable())) {
                 try {
+                  /* Recorded BEFORE the line is typed, and never afterwards.
+                     The close path kills only a name it was given, and a
+                     session that came up a moment after the wait gave up
+                     would otherwise be a name nobody holds: an agent left
+                     running with nothing on screen. Killing a name that was
+                     never created is a no-op, and this name is unique to this
+                     launch, so it can never reach anyone else's work. */
+                  rememberTmuxSession(sessionId, tmuxName);
+                  useSessionStore.getState().updateSession(sessionId, { tmuxName });
                   await writeStdin(sessionId, `${tmuxLine}\r`);
-                  if (!(await waitForTmuxSession(tmuxNameForSession(sessionId)))) {
+                  if (!(await waitForTmuxSession(tmuxName))) {
                     /* Surfaced, not swallowed: the command below still runs,
                        so the work happens, but it is NOT in tmux and will die
                        with the app. Saying nothing would leave him believing

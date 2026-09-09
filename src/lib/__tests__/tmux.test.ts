@@ -5,10 +5,12 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 import {
   isSafeTmuxName,
+  newTmuxSessionName,
+  rememberTmuxSession,
   tmuxAttachCommand,
   tmuxLaunchCommand,
-  tmuxNameForSession,
   tmuxPreLaunchLine,
+  tmuxSessionFor,
   waitForTmuxSession,
 } from "@/lib/tmux";
 
@@ -32,26 +34,45 @@ describe("tmux names", () => {
   });
 
   it("agrees with itself about what is safe", () => {
-    expect(isSafeTmuxName(tmuxNameForSession(12))).toBe(true);
+    expect(isSafeTmuxName(newTmuxSessionName(12))).toBe(true);
   });
 
-  it("names a launched session after the session it belongs to", () => {
-    expect(tmuxNameForSession(12)).toBe("vanguard-12");
+  it("says which session a launched tmux session belongs to", () => {
+    expect(newTmuxSessionName(12)).toMatch(/^vanguard-12-[0-9a-f]{6}$/);
+  });
+
+  /* THE ONE THAT MATTERS. Session ids come from an in-process counter that
+     restarts at 1 on every app launch, while these tmux sessions are built to
+     outlive the app. A name derived from the id alone therefore names the
+     PREVIOUS run's work: the first launch after a restart would join last
+     night's agent, and closing that pane would kill it. */
+  it("never gives two launches the same name, even for the same session id", () => {
+    const names = new Set(Array.from({ length: 200 }, () => newTmuxSessionName(1)));
+    expect(names.size).toBe(200);
   });
 });
 
 describe("launching into tmux", () => {
-  /* -A attaches if the name is somehow taken rather than failing the launch,
-     which matters because the name is derived from the session id and an id
-     can be reused after a restart. */
-  it("creates the session, or joins one already carrying that name", () => {
-    expect(tmuxLaunchCommand(7)).toBe("tmux new-session -A -s vanguard-7");
+  /* No -A. It JOINS a session already carrying the name rather than failing,
+     so with any name collision it is the flag that types a fresh agent
+     command line into an agent that is already running. */
+  it("creates the session and refuses to join one that already exists", () => {
+    expect(tmuxLaunchCommand("vanguard-7-a1b2c3")).toBe("tmux new-session -s vanguard-7-a1b2c3");
+    expect(tmuxLaunchCommand("vanguard-7-a1b2c3")).not.toContain("-A");
+  });
+});
+
+describe("remembering what a launch created", () => {
+  /* The close path kills a name it was handed, never one it worked out, so
+     the launch has to hand it over. */
+  it("hands the close path the name the launch actually used", () => {
+    const name = newTmuxSessionName(4);
+    rememberTmuxSession(4, name);
+    expect(tmuxSessionFor(4)).toBe(name);
   });
 
-  /* The close path derives the name from the id rather than storing it, so
-     the two must agree exactly or closing would kill nothing. */
-  it("names it the same way the close path will look for it", () => {
-    expect(tmuxLaunchCommand(7)).toContain(tmuxNameForSession(7));
+  it("knows nothing about a session that was never launched into tmux", () => {
+    expect(tmuxSessionFor(9999)).toBeNull();
   });
 });
 
@@ -84,12 +105,14 @@ describe("waiting for the tmux session to exist", () => {
 
 describe("deciding whether to wrap a launch in tmux", () => {
   it("wraps an ordinary launch", () => {
-    expect(tmuxPreLaunchLine(false, 3)).toBe("tmux new-session -A -s vanguard-3");
+    expect(tmuxPreLaunchLine(false, "vanguard-3-a1b2c3")).toBe(
+      "tmux new-session -s vanguard-3-a1b2c3",
+    );
   });
 
   /* Attaching is already going into tmux. Creating a session first would nest
      tmux inside tmux, which tmux refuses, and the attach would never run. */
   it("does not wrap an attach, which would nest tmux inside tmux", () => {
-    expect(tmuxPreLaunchLine(true, 3)).toBeNull();
+    expect(tmuxPreLaunchLine(true, "vanguard-3-a1b2c3")).toBeNull();
   });
 });

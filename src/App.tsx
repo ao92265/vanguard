@@ -10,6 +10,7 @@ import { getDeduplicatedCurrentBranch, invalidateCurrentBranchCache } from "@/li
 import { isMac } from "@/lib/platform";
 import { projectColorFor } from "@/lib/projectColor";
 import { initSamuraiSpawnListener, stopSamuraiSpawnListener } from "@/lib/spawnSession";
+import { stopSessions } from "@/lib/stopSessions";
 import { killSession } from "@/lib/terminal";
 import { useOpenProject } from "@/lib/useOpenProject";
 import { useProjectColors } from "@/lib/useProjectColors";
@@ -194,6 +195,10 @@ function App() {
     Map<string, { slotCount: number; launchedCount: number }>
   >(new Map());
   const [isStoppingAll, setIsStoppingAll] = useState(false);
+  /* Sessions Stop All could not stop. Held rather than logged because the
+     rows they belong to are cleared moments later: without this the only
+     trace of an agent still running is in the devtools console. */
+  const [stopAllFailures, setStopAllFailures] = useState<string[]>([]);
   const [currentBranch, setCurrentBranch] = useState<string | undefined>(undefined);
   // Eagle view: one flat grid of every project's terminals at once
   const [eagleView, setEagleView] = useState(false);
@@ -649,12 +654,12 @@ function App() {
     try {
       const sessionStore = useSessionStore.getState();
       const projectSessions = sessionStore.getSessionsByProject(activeTab.projectPath);
-      const results = await Promise.allSettled(projectSessions.map((s) => killSession(s.id)));
-      for (const result of results) {
-        if (result.status === "rejected") {
-          console.error("Failed to stop session:", result.reason);
-        }
-      }
+      /* Surfaced, not logged. A session that would not stop is an agent still
+         running inside a tmux session with nothing on screen showing it, and
+         the rows are about to be cleared: the console is the one place he
+         would never look for that. */
+      const failures = await stopSessions(projectSessions.map((s) => s.id));
+      setStopAllFailures(failures);
       await sessionStore.removeSessionsForProject(activeTab.projectPath);
       setSessionsLaunched(activeTab.id, false);
       setSessionCounts((prev) => {
@@ -1468,6 +1473,27 @@ function App() {
       )}
 
       <UpdateNotification />
+      {stopAllFailures.length > 0 && (
+        <div className="fixed bottom-4 right-4 z-50 max-w-md rounded-md border border-maestro-red/50 bg-maestro-surface px-3 py-2 shadow-lg">
+          <p className="text-sm font-semibold text-maestro-red">
+            {stopAllFailures.length === 1
+              ? "One session did not stop"
+              : `${stopAllFailures.length} sessions did not stop`}
+          </p>
+          {stopAllFailures.map((failure) => (
+            <p key={failure} className="mt-1 text-xs text-maestro-muted">
+              {failure}
+            </p>
+          ))}
+          <button
+            type="button"
+            onClick={() => setStopAllFailures([])}
+            className="mt-2 rounded bg-maestro-border px-2 py-1 text-xs text-maestro-text hover:bg-maestro-muted/20"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       <NotificationToasts />
 
       {/* First-run tour — at the root, not inside <main>, so its backdrop

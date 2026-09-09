@@ -132,9 +132,23 @@ pub async fn tmux_available() -> bool {
 /// whether a given session was launched into tmux without storing that, and
 /// asking tmux to end something already gone is exactly the no-op it should
 /// be.
+/// The names this command is allowed to end.
+///
+/// Character validation says the name is safe to put on a command line. It
+/// does not say the session is ours. The renderer displays agent-produced
+/// content, so a foothold there could list every tmux session on the machine
+/// (`list_tmux_sessions` hands it the lot) and then kill them one at a time,
+/// destroying work that has nothing to do with Vanguard. Only names Vanguard
+/// itself hands out are killable.
+fn killable_session_name(raw: &str) -> Option<String> {
+    let safe = safe_session_name(raw)?;
+    safe.starts_with("vanguard-").then_some(safe)
+}
+
 #[tauri::command]
 pub async fn kill_tmux_session(name: String) -> Result<(), String> {
-    let safe = safe_session_name(&name).ok_or_else(|| "That is not a tmux session name.".to_string())?;
+    let safe = killable_session_name(&name)
+        .ok_or_else(|| "That is not a tmux session Vanguard started.".to_string())?;
     match tokio::process::Command::new("tmux")
         .args(["kill-session", "-t", &safe])
         .output()
@@ -162,6 +176,26 @@ pub async fn kill_tmux_session(name: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /* The renderer displays agent-produced content, so treat anything that
+       reaches this command as attacker-controlled. Character validation alone
+       let a foothold list every tmux session on the machine and kill them one
+       by one, Vanguard's or not. Ownership is the check that matters: this
+       command may only end sessions Vanguard names. */
+    #[test]
+    fn refuses_to_kill_a_session_vanguard_did_not_name() {
+        assert!(killable_session_name("vanguard-7-a1b2c3").is_some());
+        assert!(killable_session_name("cc-aoreilly-4").is_none());
+        assert!(killable_session_name("scheduler").is_none());
+        assert!(killable_session_name("Reviews").is_none());
+    }
+
+    #[test]
+    fn still_refuses_a_name_that_could_retarget_tmux_or_reach_the_shell() {
+        assert!(killable_session_name("vanguard-7:1").is_none());
+        assert!(killable_session_name("vanguard-7 x").is_none());
+        assert!(killable_session_name("").is_none());
+    }
 
     #[test]
     fn reads_a_session_row() {

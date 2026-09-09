@@ -345,10 +345,7 @@ impl ProcessManager {
             cmd.env("LANG", "en_US.UTF-8");
         }
 
-        // Prevent Claude Code from thinking it's nested inside another session.
-        // Maestro may have been launched from a Claude Code terminal, so strip
-        // the marker env var so terminals inside Maestro can start fresh sessions.
-        cmd.env_remove("CLAUDECODE");
+        strip_nesting_markers(&mut cmd);
 
         // Inject MAESTRO_SESSION_ID automatically (used by MCP status server)
         cmd.env("MAESTRO_SESSION_ID", id.to_string());
@@ -833,9 +830,63 @@ impl ProcessManager {
     }
 }
 
+/// Removes the markers that make a freshly spawned shell believe it is already
+/// inside something.
+///
+/// Maestro can be started from a terminal that is itself inside another tool,
+/// and the child inherits that tool's marker variables. Claude Code then
+/// refuses to start a fresh session.
+fn strip_nesting_markers(cmd: &mut CommandBuilder) {
+    cmd.env_remove("CLAUDECODE");
+    // tmux refuses to nest, so a session launched from a Maestro that is
+    // itself running inside tmux would never get its own tmux session: the
+    // launch would fall to the error path and the work would die with the
+    // app. Stripping the markers is what lets a session start fresh.
+    cmd.env_remove("TMUX");
+    cmd.env_remove("TMUX_PANE");
+}
+
 #[cfg(test)]
 mod tests {
-    use super::Utf8Decoder;
+    use super::{strip_nesting_markers, Utf8Decoder};
+    use portable_pty::CommandBuilder;
+
+    // A session shell must not inherit the markers of whatever Maestro itself
+    // was launched from. `tmux new-session` refuses to nest, so a session
+    // started from a Maestro that is running inside tmux would never get its
+    // own tmux session and would die with the app.
+    #[test]
+    fn session_shell_does_not_inherit_tmux_markers() {
+        std::env::set_var("TMUX", "/private/tmp/tmux-502/default,12479,19");
+        std::env::set_var("TMUX_PANE", "%19");
+        let mut cmd = CommandBuilder::new("/bin/sh");
+        assert!(
+            cmd.get_env("TMUX").is_some(),
+            "precondition: the builder should start with the parent's TMUX"
+        );
+
+        strip_nesting_markers(&mut cmd);
+
+        assert!(
+            cmd.get_env("TMUX").is_none(),
+            "TMUX must not reach the session shell"
+        );
+        assert!(
+            cmd.get_env("TMUX_PANE").is_none(),
+            "TMUX_PANE must not reach the session shell"
+        );
+    }
+
+    #[test]
+    fn session_shell_does_not_inherit_claude_code_marker() {
+        std::env::set_var("CLAUDECODE", "1");
+        let mut cmd = CommandBuilder::new("/bin/sh");
+        assert!(cmd.get_env("CLAUDECODE").is_some(), "precondition");
+
+        strip_nesting_markers(&mut cmd);
+
+        assert!(cmd.get_env("CLAUDECODE").is_none());
+    }
 
     #[test]
     fn decode_passes_valid_utf8_through() {

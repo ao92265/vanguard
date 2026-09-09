@@ -8,7 +8,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { quoteShellArgument, type ShellFamily } from "@/lib/shellEscape";
-import { tmuxNameForSession } from "@/lib/tmux";
+import { forgetTmuxSession, killTmuxSession, tmuxSessionFor } from "@/lib/tmux";
 import type { BackendCapabilities, BackendType } from "./terminalTheme";
 
 /**
@@ -159,30 +159,50 @@ export async function resizePty(sessionId: number, rows: number, cols: number): 
 
 /**
  * Terminates the backend PTY process and cleans up the session, and ends the
- * tmux session it may have been launched into.
+ * tmux session it was launched into.
  *
- * The tmux half is not optional and not conditional. Killing the PTY signals
- * its process group, which under tmux is only the client: the agent would
- * keep running inside the tmux server with nothing on screen showing it, and
- * Stop All would report success while every agent carried on. The name is
- * derived from the session id rather than stored, so this works after a
- * restart, and a session that was never launched into tmux, or has already
- * gone, is a no-op rather than a failure.
+ * The tmux half is not optional. Killing the PTY signals its process group,
+ * which under tmux is only the client: the agent would keep running inside
+ * the tmux server with nothing on screen showing it, and Stop All would
+ * report success while every agent carried on.
+ *
+ * It kills the name this run recorded at launch, never a name derived from
+ * the session id. Ids restart at 1 on every app launch while tmux sessions
+ * deliberately outlive the app, so a derived name is last night's work:
+ * closing one throwaway pane after a restart would have killed it.
  *
  * Every close path goes through here on purpose. Doing it at the call sites
  * would leave whichever one nobody remembered orphaning agents.
  */
 export async function killSession(sessionId: number): Promise<void> {
+  const tmuxName = tmuxSessionFor(sessionId);
+  if (!tmuxName) return invoke("kill_session", { sessionId });
+
   /* The agent goes first: once the PTY is gone there is no handle left, and
-     an orphan is worse than a redundant call. A failure here must not stop
-     the close, or an unkillable tmux session would make the terminal
-     unclosable too. */
+     an orphan is worse than a redundant call. */
+  let tmuxFailure: unknown = null;
   try {
-    await invoke("kill_tmux_session", { name: tmuxNameForSession(sessionId) });
+    await killTmuxSession(tmuxName);
+    forgetTmuxSession(sessionId);
   } catch (error) {
-    console.error("[tmux] Could not end the session's tmux session:", error);
+    tmuxFailure = error;
   }
-  return invoke("kill_session", { sessionId });
+
+  /* The terminal closes either way: an unkillable tmux session must not make
+     the pane unclosable too. */
+  await invoke("kill_session", { sessionId });
+
+  /* Raised, not logged. The backend already answers "already gone" with
+     success, so anything that failed is a tmux session still running an
+     agent. Swallowing it let Stop All clear the rows and report a clean stop
+     while the work carried on, detached. */
+  if (tmuxFailure) {
+    throw new Error(
+      `The terminal closed, but its tmux session ${tmuxName} is still running: ${
+        tmuxFailure instanceof Error ? tmuxFailure.message : String(tmuxFailure)
+      }`,
+    );
+  }
 }
 
 /** AI mode variants matching the backend enum. */
