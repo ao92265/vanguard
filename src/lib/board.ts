@@ -6,6 +6,7 @@ import {
   MAX_HANDOFF_ROWS,
   type RepoPrs,
 } from "@/lib/bands";
+import { isUnderAnyPath } from "@/lib/staleProcess";
 import type { TmuxSession } from "@/lib/tmux";
 import type { PullRequestInfo } from "@/stores/useGitHubStore";
 import type { BackendSessionStatus, SessionConfig } from "@/stores/useSessionStore";
@@ -336,8 +337,17 @@ export function assembleBoard({
   const ownedTmux = new Set(
     sessions.map((s) => (s as { tmuxName?: string | null }).tmuxName).filter(Boolean),
   );
+  const tmuxCwds: string[] = [];
   for (const tmux of tmuxSessions) {
     if (ownedTmux.has(tmux.name)) continue;
+    /* The status bar prints Building's size as the session count, so a tmux
+       session with no live claude under it (a dev server, a plain shell) must
+       not swell it. An empty set is not evidence of absence: the process scan
+       may have failed or not run yet, and blanking the board behind a
+       permission prompt is worse than one card too many, so the filter waits
+       until the scan has actually seen something. */
+    if (activeDirs && activeDirs.size > 0 && !isCoveredByActiveDir(tmux.cwd, activeDirs)) continue;
+    tmuxCwds.push(tmux.cwd);
     columns.building.push({
       kind: "tmux",
       session: tmux,
@@ -366,6 +376,10 @@ export function assembleBoard({
     const liveCards = new Map<string, BoardCardItem>();
     for (const cwd of [...activeDirs].sort()) {
       if (!cwd) continue;
+      /* Already on the board as a tmux card. Keep that one rather than adding a
+         second: it carries the session name, which is how he attaches to it.
+         Counting both is what made the bar say 10 against four open windows. */
+      if (isUnderAnyPath(cwd, tmuxCwds)) continue;
       const single = new Set([cwd]);
       let deepest: HandoffInfo | null = null;
       for (const h of liveOutsideHandoffs) {
