@@ -70,13 +70,18 @@ export function WorkbenchRail({
           <span className="workbench-brand-mark">V</span>
           <span className="workbench-rail-label">Vanguard</span>
         </div>
-        <div className="workbench-navigation">{primary.map((item) => destination(item))}</div>
+        <div className="workbench-navigation">
+          {primary.map((item) => destination(item))}
+          {/* Everything that used to hide behind a More menu. One click each,
+              nothing to open first. They sat at the foot of the rail, below the
+              projects and away from the rest of the navigation, so they read as
+              leftovers rather than places to go. */}
+          <div className="workbench-project-divider" />
+          {tools.map((item) => destination(item))}
+        </div>
         <div className="workbench-project-divider" />
         {projectNavigation}
         <div className="workbench-rail-bottom">
-          {/* Everything that used to hide behind a More menu. One click each,
-              nothing to open first. */}
-          {tools.map((item) => destination(item))}
           <button
             type="button"
             aria-label="Wide menu"
