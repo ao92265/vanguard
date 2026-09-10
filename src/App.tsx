@@ -166,6 +166,7 @@ function isValidTheme(value: string | null): value is Theme {
 function App() {
   const tabs = useWorkspaceStore((s) => s.tabs);
   const projectColors = useProjectColors();
+  const activeChosenThisSession = useWorkspaceStore((s) => s.activeChosenThisSession);
   const selectTab = useWorkspaceStore((s) => s.selectTab);
   const closeTab = useWorkspaceStore((s) => s.closeTab);
   const reorderTabs = useWorkspaceStore((s) => s.reorderTabs);
@@ -676,13 +677,20 @@ function App() {
   // Cmd/Ctrl+T: add a new terminal. In eagle view this opens the project
   // picker modal; otherwise the active project's grid gets a new slot (the
   // grid keeps the zoom-in view and zooms the new slot when one is zoomed).
+  //
+  // The picker also stands in for the first new terminal after a launch. The
+  // active tab is persisted, so at startup it is whatever was active whenever
+  // the app last closed, not a project anyone has looked at today: opening a
+  // terminal straight into it is how you end up typing in a directory you
+  // forgot was open. Asking once per launch is enough, because picking marks
+  // the choice as made and every later Cmd+T goes through without a prompt.
   const handleAddSessionShortcut = useCallback(() => {
-    if (eagleView) {
+    if (eagleView || (!activeChosenThisSession && tabs.length > 0)) {
       setEagleAddPickerOpen(true);
       return;
     }
     multiProjectRef.current?.addSessionToActiveProject();
-  }, [eagleView]);
+  }, [eagleView, activeChosenThisSession, tabs.length]);
 
   // Leaving eagle view always drops the picker.
   useEffect(() => {
@@ -1137,8 +1145,7 @@ function App() {
           }}
           onAddSession={() => {
             handleWorkbenchNavigate(false);
-            if (eagleView) handleAddSessionShortcut();
-            else if (activeTab) handleAddSessionToProject(activeTab.id);
+            handleAddSessionShortcut();
           }}
           canAddSession={
             eagleView

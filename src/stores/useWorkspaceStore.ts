@@ -60,6 +60,15 @@ type WorkspaceState = {
    * because slot ids are ephemeral per app run — sessions never survive restart.
    */
   zoomTabOrders: Record<string, string[]>;
+  /**
+   * Whether the active tab is a choice made in this run of the app, rather than
+   * one read back off disk at launch. Runtime-only, so a restart always starts
+   * false. Anything that spawns work into "the active project" should ask
+   * before acting on a false: the flag on a restored tab is last week's answer
+   * to a question nobody asked this launch, and silently opening a terminal in
+   * it drops you somewhere you have not looked at for days.
+   */
+  activeChosenThisSession: boolean;
 };
 
 /**
@@ -198,6 +207,7 @@ export const useWorkspaceStore = create<WorkspaceState & WorkspaceActions>()(
     (set, get) => ({
       tabs: [],
       zoomTabOrders: {},
+      activeChosenThisSession: false,
 
       openProject: async (path: string) => {
         // Deduplicate: if path already open, just activate that tab
@@ -205,6 +215,7 @@ export const useWorkspaceStore = create<WorkspaceState & WorkspaceActions>()(
         if (existing) {
           set((state) => ({
             tabs: state.tabs.map((t) => ({ ...t, active: t.id === existing.id })),
+            activeChosenThisSession: true,
           }));
           return;
         }
@@ -248,9 +259,11 @@ export const useWorkspaceStore = create<WorkspaceState & WorkspaceActions>()(
           if (opened) {
             return {
               tabs: state.tabs.map((t) => ({ ...t, active: t.id === opened.id })),
+              activeChosenThisSession: true,
             };
           }
           return {
+            activeChosenThisSession: true,
             tabs: [
               ...state.tabs.map((t) => ({ ...t, active: false })),
               {
@@ -275,6 +288,7 @@ export const useWorkspaceStore = create<WorkspaceState & WorkspaceActions>()(
         if (!tabs.some((t) => t.id === id)) return;
         set({
           tabs: tabs.map((t) => ({ ...t, active: t.id === id })),
+          activeChosenThisSession: true,
         });
       },
 
@@ -313,6 +327,9 @@ export const useWorkspaceStore = create<WorkspaceState & WorkspaceActions>()(
           tabs: needsActivation
             ? remaining.map((t, i) => (i === 0 ? { ...t, active: true } : t))
             : remaining,
+          // Moving you off a tab you just closed is still the app answering the
+          // question, so the answer counts as made this run.
+          ...(needsActivation ? { activeChosenThisSession: true } : {}),
         });
       },
 
