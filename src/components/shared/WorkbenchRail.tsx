@@ -66,10 +66,6 @@ export function WorkbenchRail({
           rather than covering it. */}
       <div className="workbench-rail-slot" data-expanded={expanded} aria-hidden="true" />
       <nav aria-label="Workspace" data-expanded={expanded} className="workbench-rail">
-        <div className="workbench-brand">
-          <span className="workbench-brand-mark">V</span>
-          <span className="workbench-rail-label">Vanguard</span>
-        </div>
         <div className="workbench-navigation">
           {primary.map((item) => destination(item))}
           {/* Everything that used to hide behind a More menu. One click each,
