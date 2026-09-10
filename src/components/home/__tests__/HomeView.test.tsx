@@ -11,6 +11,8 @@ import { HomeView } from "../HomeView";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn().mockResolvedValue([]) }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(() => {}) }));
+const ask = vi.fn().mockResolvedValue(true);
+vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: (...args: unknown[]) => ask(...args) }));
 vi.mock("@tauri-apps/plugin-store", () => ({
   LazyStore: class {
     async get() {
@@ -85,6 +87,8 @@ beforeEach(() => {
   // up, so every queue-keyboard assertion below would pass vacuously with it.
   useTourStore.setState({ isOpen: false });
   useSnoozeStore.setState({ entries: [] });
+  ask.mockReset();
+  ask.mockResolvedValue(true);
 });
 
 afterEach(() => {
@@ -280,4 +284,20 @@ it("lets you put off a run and a pull request, not just a session", () => {
 
   snoozeFocused();
   expect(within(focusCard()).getByText(/1 of 1/i)).toBeVisible();
+});
+
+it("says so when dismissing a handoff fails, instead of looking like nothing happened", () => {
+  // The failure only ever reached the console, which from the outside is
+  // indistinguishable from a row that refuses to go away.
+  useBandStore.setState({
+    handoffs: [handoff()],
+    dismissHandoff: vi.fn().mockResolvedValue("permission denied"),
+  });
+  useSessionStore.setState({ sessions: [] });
+  render(<HomeView onClose={() => {}} onNavigate={() => {}} />);
+
+  fireEvent.click(within(focusCard()).getByRole("button", { name: /Dismiss/ }));
+  return vi.waitFor(() => {
+    expect(screen.getByRole("alert")).toHaveTextContent(/permission denied/i);
+  });
 });
