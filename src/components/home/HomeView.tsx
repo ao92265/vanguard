@@ -469,6 +469,9 @@ function FocusCard({
               <ExternalLink size={12} /> Open on GitHub
             </button>
           )}
+          {item.kind === "pr" && snoozeKey && (
+            <SnoozeButton snoozeKey={snoozeKey} label="this pull request" />
+          )}
           {item.kind === "run" && (
             <button
               type="button"
@@ -482,6 +485,9 @@ function FocusCard({
             >
               Open in the Factory
             </button>
+          )}
+          {item.kind === "run" && snoozeKey && (
+            <SnoozeButton snoozeKey={snoozeKey} label="this run" />
           )}
           <div className="flex-1" />
           <span className="font-mono text-[11.5px] text-maestro-muted">J next · K previous</span>
@@ -702,14 +708,32 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
   const restoreClosedBatch = useRestoreClosedBatch(onNavigate);
 
   /* Snoozed rows leave the band but stay reachable in a shelf below it — a
-     hidden row with no way back is indistinguishable from a lost one. */
+     hidden row with no way back is indistinguishable from a lost one.
+     Every band is filtered, not only the blocked one: putting off a parked
+     handoff used to hide nothing, so the count stayed where it was however
+     many rows you had dealt with. */
   const blocked = useMemo(
     () => partitionSnoozed(filtered(bands.blocked), snoozeEntries, Date.now()),
     [bands.blocked, filtered, snoozeEntries],
   );
-  const parked = useMemo(() => filtered(bands.parked), [bands.parked, filtered]);
-  const landed = useMemo(() => filtered(bands.landed), [bands.landed, filtered]);
-  const running = useMemo(() => filtered(bands.running), [bands.running, filtered]);
+  const parked = useMemo(
+    () => partitionSnoozed(filtered(bands.parked), snoozeEntries, Date.now()),
+    [bands.parked, filtered, snoozeEntries],
+  );
+  const landed = useMemo(
+    () => partitionSnoozed(filtered(bands.landed), snoozeEntries, Date.now()),
+    [bands.landed, filtered, snoozeEntries],
+  );
+  const running = useMemo(
+    () => partitionSnoozed(filtered(bands.running), snoozeEntries, Date.now()),
+    [bands.running, filtered, snoozeEntries],
+  );
+  /* One shelf for everything put off, in band order. Four shelves would make
+     the way back depend on which band the row happened to sit in. */
+  const snoozed = useMemo(
+    () => [...blocked.snoozed, ...parked.snoozed, ...landed.snoozed, ...running.snoozed],
+    [blocked.snoozed, parked.snoozed, landed.snoozed, running.snoozed],
+  );
 
   /* One flat queue in band order, so the focus card and j/k agree on what
      "next" means, while each band keeps its own divider below. */
@@ -721,11 +745,11 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
       }
     };
     push(blocked.visible, "blocked");
-    push(parked, "parked");
-    push(landed, "landed");
-    push(running, "running");
+    push(parked.visible, "parked");
+    push(landed.visible, "landed");
+    push(running.visible, "running");
     return entries;
-  }, [blocked.visible, parked, landed, running]);
+  }, [blocked.visible, parked.visible, landed.visible, running.visible]);
 
   /* Nothing selected means the top of the queue is what needs you: the card
      is never empty while the queue is not. */
@@ -871,7 +895,7 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
           </span>
         )}
         <span className="font-mono text-[11.5px] text-maestro-muted">
-          {landed.length} landed · {running.length} running
+          {landed.visible.length} landed · {running.visible.length} running
         </span>
         <button
           type="button"
@@ -969,7 +993,7 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
                 onDraftReply={handleDraftReply}
                 onLaunchHandoff={launchHandoff}
                 onDismissHandoff={handleDismissHandoff}
-                snoozeKey={focused.band === "blocked" ? focused.key : undefined}
+                snoozeKey={focused.key}
               />
             </div>
           ) : (
@@ -1011,18 +1035,18 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
           }
         />
 
-        {blocked.snoozed.length > 0 && (
+        {snoozed.length > 0 && (
           <div className="mt-[22px]">
             <div className="mb-2.5 flex items-center gap-2.5">
               <Clock size={11} className="text-maestro-muted" />
               <span className={dividerLabelClass}>Snoozed</span>
               <span className="font-mono text-[10.5px] text-maestro-muted/70">
-                {blocked.snoozed.length}
+                {snoozed.length}
               </span>
               <span className="h-px flex-1 bg-maestro-border" />
             </div>
             <div className="flex flex-col gap-px">
-              {blocked.snoozed.map((item) => {
+              {snoozed.map((item) => {
                 const key = bandItemKey(item);
                 return (
                   <div

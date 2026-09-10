@@ -4,6 +4,7 @@ import type { HandoffInfo } from "@/lib/bands";
 import { useActStore } from "@/stores/useActStore";
 import { useBandStore } from "@/stores/useBandStore";
 import { type SessionConfig, useSessionStore } from "@/stores/useSessionStore";
+import { useSnoozeStore } from "@/stores/useSnoozeStore";
 import { useTourStore } from "@/stores/useTourStore";
 import { useWorkspaceStore, type WorkspaceTab } from "@/stores/useWorkspaceStore";
 import { HomeView } from "../HomeView";
@@ -83,6 +84,7 @@ beforeEach(() => {
   // The tour auto-opens on a fresh profile and owns the keyboard while it is
   // up, so every queue-keyboard assertion below would pass vacuously with it.
   useTourStore.setState({ isOpen: false });
+  useSnoozeStore.setState({ entries: [] });
 });
 
 afterEach(() => {
@@ -227,4 +229,55 @@ it("keeps the landed and running bands reachable below the blocked queue", () =>
   render(<HomeView onClose={() => {}} onNavigate={() => {}} />);
   const running = screen.getByRole("list", { name: "Running" });
   expect(within(running).getByRole("button", { name: /Inspect.*Checks/ })).toBeVisible();
+});
+
+/** Hide the row the focus card is showing, via its own "Later" control. */
+function snoozeFocused(): void {
+  fireEvent.click(within(focusCard()).getByRole("button", { name: /Later/ }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "1h" }));
+}
+
+it("drops a row you put off out of the count, whichever band it sat in", () => {
+  // Only the blocked band was ever filtered by the snoozes, so putting off a
+  // parked handoff hid nothing and left the total where it was: the queue said
+  // three whether you had dealt with them or not.
+  useBandStore.setState({ handoffs: [handoff()] });
+  render(<HomeView onClose={() => {}} onNavigate={() => {}} />);
+  expect(within(focusCard()).getByText(/1 of 3/i)).toBeVisible();
+
+  fireEvent.keyDown(focusCard(), { key: "j" });
+  fireEvent.keyDown(focusCard(), { key: "j" });
+  expect(within(focusCard()).getByText(/3 of 3/i)).toBeVisible();
+
+  snoozeFocused();
+  expect(within(focusCard()).getByText(/1 of 2/i)).toBeVisible();
+});
+
+it("lets you put off a run and a pull request, not just a session", () => {
+  // These two rows offered one button each, and it was never a way out: a
+  // queue of them could not be reduced by anything short of doing the work.
+  useActStore.setState({
+    gatedRuns: [
+      {
+        id: "r8",
+        title: "Telegram photo routing",
+        status: "running",
+        stage: null,
+        stages: [],
+        createdAt: null,
+        updatedAt: null,
+        repoUrl: null,
+        error: null,
+      },
+    ],
+  });
+  useSessionStore.setState({ sessions: [migration] });
+  render(<HomeView onClose={() => {}} onNavigate={() => {}} />);
+  expect(within(focusCard()).getByText(/1 of 2/i)).toBeVisible();
+
+  fireEvent.keyDown(focusCard(), { key: "j" });
+  expect(within(focusCard()).getByText("Telegram photo routing")).toBeVisible();
+
+  snoozeFocused();
+  expect(within(focusCard()).getByText(/1 of 1/i)).toBeVisible();
 });
