@@ -45,7 +45,7 @@ import {
   type SamuraiSessionInfo,
   useSessionStore,
 } from "@/stores/useSessionStore";
-import { useSurfaceStore } from "@/stores/useSurfaceStore";
+import { useWorkflowsViewStore } from "@/stores/useWorkflowsViewStore";
 import { useWorkspaceStore, type WorkspaceTab } from "@/stores/useWorkspaceStore";
 import { LaunchSection } from "../LaunchSection";
 
@@ -269,7 +269,7 @@ describe("LaunchSection (issue #63)", () => {
     useSamuraiGateStore.setState({ gates: {} });
     // Issue #91 (full-screen follow-up): the overlay's open state is a
     // module-level store — reset between tests like the others above.
-    useSurfaceStore.setState({ overlay: null });
+    useWorkflowsViewStore.setState({ isOpen: false });
   });
 
   /** The free-text launch box (issue #128). */
@@ -303,13 +303,13 @@ describe("LaunchSection (issue #63)", () => {
 
     expect(screen.getByText("Workflow")).toBeInTheDocument();
     const button = screen.getByRole("button", { name: "Open workflow editor" });
-    expect(useSurfaceStore.getState().overlay).not.toBe("workflows");
+    expect(useWorkflowsViewStore.getState().isOpen).toBe(false);
 
     fireEvent.click(button);
 
     // The inline editor is gone — LaunchSection only flips the shared
     // open-state store; `WorkflowsView` itself renders elsewhere (App).
-    expect(useSurfaceStore.getState().overlay).toBe("workflows");
+    expect(useWorkflowsViewStore.getState().isOpen).toBe(true);
     expect(screen.queryByLabelText("Edit step implement")).not.toBeInTheDocument();
   });
 

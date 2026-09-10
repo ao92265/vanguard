@@ -185,7 +185,7 @@ describe("workbench accent ink", () => {
     // Tailwind can tell a misspelled utility from a deliberately unstyled
     // element, so every spelling is checked against the palette itself.
     const palette = new Set(
-      [...tailwind.matchAll(/^\s+"?([a-z-]+)"?:\s*rgb\(/gm)].map((match) => match[1]),
+      [...tailwind.matchAll(/^\s+"?([a-z0-9-]+)"?:\s*rgb\(/gm)].map((match) => match[1]),
     );
     expect(palette.has("on-accent")).toBe(true);
 
