@@ -704,6 +704,9 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
     [statusFilter],
   );
 
+  /* Set when a dismiss could not go through, cleared on the next attempt. */
+  const [dismissError, setDismissError] = useState<string | null>(null);
+
   const launchHandoff = useLaunchHandoff(onNavigate);
   const restoreClosedBatch = useRestoreClosedBatch(onNavigate);
 
@@ -810,7 +813,12 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
 
   /* Dismiss deletes the snapshot file, so it asks first — every other action
      on this screen is reversible and this one is not. */
+  /* Deleting the snapshot is the one thing on this screen that cannot be
+     undone, so the confirmation stays. What could not stay is where the
+     failure went: the console only, which from the outside looks exactly like
+     a row that refuses to go away. */
   const handleDismissHandoff = useCallback((h: HandoffInfo) => {
+    setDismissError(null);
     void ask(
       `Delete the handoff snapshot for ${h.repo}? It is removed from disk and cannot be restored.`,
       { title: "Dismiss handoff", kind: "warning" },
@@ -818,9 +826,9 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
       .then(async (confirmed) => {
         if (!confirmed) return;
         const error = await useBandStore.getState().dismissHandoff(h.slug);
-        if (error) console.error("Failed to dismiss handoff:", error);
+        if (error) setDismissError(`Could not dismiss the ${h.repo} handoff: ${error}`);
       })
-      .catch((err) => console.error("Failed to dismiss handoff:", err));
+      .catch((err) => setDismissError(`Could not dismiss the ${h.repo} handoff: ${String(err)}`));
   }, []);
 
   /* After inserting a draft the user has to SEE the input line to press Enter
@@ -897,6 +905,14 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
         <span className="font-mono text-[11.5px] text-maestro-muted">
           {landed.visible.length} landed · {running.visible.length} running
         </span>
+        {dismissError && (
+          <span
+            role="alert"
+            className="rounded border border-maestro-red/50 px-2 py-0.5 text-[11.5px] text-maestro-red"
+          >
+            {dismissError}
+          </span>
+        )}
         <button
           type="button"
           onClick={() => useTourStore.getState().open()}
