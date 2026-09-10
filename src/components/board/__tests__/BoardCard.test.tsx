@@ -276,4 +276,91 @@ describe("BoardCard", () => {
     render(<BoardCard item={handoffCard()} selected={false} onActivate={vi.fn()} />);
     expect(document.querySelector('[data-selected="true"]')).not.toBeInTheDocument();
   });
+
+  /* Quiet Deck: the stage a card is in must be readable without reading the
+     card. The stripe is a 2px left border keyed off data-stage, so a column
+     of cards shows the shape of the work before any word is parsed. */
+  it("stripes every card with the stage it is actually in", () => {
+    const cases: Array<[BoardCardItem, string]> = [
+      [sessionCard("Working", "tab-1"), "working"],
+      [sessionCard("Starting", "tab-1"), "starting"],
+      [sessionCard("Idle", "tab-1"), "idle"],
+      [sessionCard("Done", "tab-1"), "done"],
+      [sessionCard("Error", "tab-1"), "error"],
+      [sessionCard("Timeout", "tab-1"), "error"],
+      [handoffCard(), "waiting"],
+      [runCard("Building"), "working"],
+      [prCard("Review requested", null, false), "review"],
+      [prCard("Merged", "2026-01-01T00:00:00Z", false), "merged"],
+    ];
+    for (const [item, stage] of cases) {
+      const { unmount } = render(<BoardCard item={item} selected={false} onActivate={() => {}} />);
+      expect(screen.getByTestId("board-card").dataset.stage).toBe(stage);
+      unmount();
+    }
+  });
+
+  it("overrides the stage stripe on any card that needs you", () => {
+    render(
+      <BoardCard
+        item={sessionCard("NeedsInput", "tab-1")}
+        selected={false}
+        onActivate={() => {}}
+      />,
+    );
+    expect(screen.getByTestId("board-card").dataset.stage).toBe("needs");
+  });
+
+  it("spends the glow on needs-you and nothing else", () => {
+    const { unmount } = render(
+      <BoardCard item={sessionCard("Working", "tab-1")} selected={false} onActivate={() => {}} />,
+    );
+    expect(screen.getByTestId("board-card").className).not.toMatch(/shadow-\[/);
+    unmount();
+    render(
+      <BoardCard
+        item={sessionCard("NeedsInput", "tab-1")}
+        selected={false}
+        onActivate={() => {}}
+      />,
+    );
+    expect(screen.getByTestId("board-card").className).toMatch(/shadow-\[/);
+  });
+
+  /* The needs-you ground used to be a literal near-black hex, which meant the
+     one card that most has to be readable rendered as a black block on the
+     light theme. It has to come from a token so both themes get a tint. */
+  /* Two background utilities on one element is not a stronger colour, it is a
+     coin toss decided by which one Tailwind happens to emit last. The card
+     ground has to be set exactly once, or the needs-you fill never paints. */
+  it("sets the card ground exactly once, so the needs-you fill actually paints", () => {
+    const { unmount } = render(
+      <BoardCard
+        item={sessionCard("NeedsInput", "tab-1")}
+        selected={false}
+        onActivate={() => {}}
+      />,
+    );
+    const needs = screen.getByTestId("board-card").className.match(/\bbg-maestro-[\w-]+/g) ?? [];
+    expect(needs).toEqual(["bg-maestro-alarm-ground"]);
+    unmount();
+    render(
+      <BoardCard item={sessionCard("Working", "tab-1")} selected={false} onActivate={() => {}} />,
+    );
+    const plain = screen.getByTestId("board-card").className.match(/\bbg-maestro-[\w-]+/g) ?? [];
+    expect(plain).toEqual(["bg-maestro-card"]);
+  });
+
+  it("takes the needs-you ground from a token, not a literal colour", () => {
+    render(
+      <BoardCard
+        item={sessionCard("NeedsInput", "tab-1")}
+        selected={false}
+        onActivate={() => {}}
+      />,
+    );
+    const cls = screen.getByTestId("board-card").className;
+    expect(cls).toMatch(/bg-maestro-alarm-ground/);
+    expect(cls).not.toMatch(/bg-\[#/);
+  });
 });
