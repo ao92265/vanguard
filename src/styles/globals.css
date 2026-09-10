@@ -159,15 +159,11 @@
   .workbench-rail[data-expanded="true"] {
     width: 232px;
   }
-  .workbench-brand {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    height: 46px;
+  .workbench-titlebar-divider {
+    width: 1px;
+    height: 12px;
     flex: none;
-    padding: 0 14px;
-    font-size: 13px;
-    font-weight: 600;
+    background: rgb(var(--maestro-border));
   }
   .workbench-brand-mark {
     width: 22px;
