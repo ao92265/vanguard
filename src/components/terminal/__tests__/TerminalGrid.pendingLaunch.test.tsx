@@ -56,6 +56,19 @@ vi.mock("@/lib/terminal", async (importOriginal) => {
   };
 });
 
+/* tmux is off in most of these: they are about what gets typed on the launch
+   line, and the tmux wrapper is asserted on its own below. A launch on a
+   machine without tmux behaves exactly as it always did. */
+vi.mock("@/lib/tmux", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/tmux")>();
+  return {
+    ...actual,
+    tmuxAvailable: vi.fn(async () => false),
+    waitForTmuxSession: vi.fn(async () => true),
+    listTmuxSessions: vi.fn(async () => []),
+  };
+});
+
 vi.mock("@/lib/mcp", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/mcp")>();
   return {
@@ -201,6 +214,59 @@ describe("TerminalGrid pending samurai launch", () => {
     shellFamilyMock.mockClear();
     useSessionStore.setState({ sessions: [], samuraiBySessionId: {}, parkedSessionIds: [] });
     usePendingLaunchStore.setState({ pending: [] });
+  });
+
+  /* Alex asked for tmux on every launch path, automated ones included, so an
+     overnight run survives Vanguard closing like anything else. The tmux line
+     goes first and the agent command follows it, inside. */
+  it("puts an automated launch inside tmux, then types the agent command into it", async () => {
+    const tmux = await import("@/lib/tmux");
+    vi.mocked(tmux.tmuxAvailable).mockResolvedValueOnce(true);
+
+    usePendingLaunchStore.getState().request({
+      tabId: "tab-1",
+      mode: "Claude",
+      resumeSessionId: null,
+      workingDirOverride: WORKTREE,
+      branch: null,
+      customName: "samurai gen-1 77-78",
+      samurai: { project: "C:/proj", epic: "77, 78", generation: 1, model: "claude-opus-5" },
+    });
+
+    render(<TerminalGrid projectPath="C:/proj" tabId="tab-1" isActive />);
+
+    await waitFor(() => expect(writeStdinMock.mock.calls.length).toBeGreaterThan(1));
+    const typed = writeStdinMock.mock.calls.map((call) => String(call[1]));
+    /* No `-A`. That flag joins a session already carrying the name instead
+       of failing, and ids restart at 1 every app launch, so `-A` is what
+       would type this command line into last night's still-running agent. */
+    expect(typed[0]).toMatch(/^tmux new-session -s vanguard-\d+-[0-9a-f]{16}\r$/);
+    expect(typed[0]).not.toContain("-A");
+    expect(typed.slice(1).join("\n")).toContain("claude");
+  });
+
+  /* The wait is a real check, not a pause and a hope, and this is the test
+     that says so: mocked to fail, it must reach him. Without it the wait and
+     its message could both be deleted and the suite would stay green. */
+  it("says so when the session did not start inside tmux", async () => {
+    const tmux = await import("@/lib/tmux");
+    vi.mocked(tmux.tmuxAvailable).mockResolvedValueOnce(true);
+    vi.mocked(tmux.waitForTmuxSession).mockResolvedValueOnce(false);
+
+    usePendingLaunchStore.getState().request({
+      tabId: "tab-1",
+      mode: "Claude",
+      resumeSessionId: null,
+      workingDirOverride: WORKTREE,
+      branch: null,
+      customName: "samurai gen-1 77-78",
+      samurai: { project: "C:/proj", epic: "77, 78", generation: 1, model: "claude-opus-5" },
+    });
+
+    render(<TerminalGrid projectPath="C:/proj" tabId="tab-1" isActive />);
+
+    await waitFor(() => expect(writeStdinMock.mock.calls.length).toBeGreaterThan(1));
+    expect(await screen.findByText(/did not start inside tmux/i)).toBeInTheDocument();
   });
 
   it("launches a queued samurai claim in its worktree, supervised, on the mount commit", async () => {

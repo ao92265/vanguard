@@ -13,6 +13,10 @@ import type { FlowScore, FlowToday } from "@/lib/pulse";
  * shows no score at all rather than the 50 the penalty factors would hand it,
  * and any day whose score was estimated from its commit count alone is drawn
  * faded, so a fresh install cannot pass a fortnight of guesses off as history.
+ *
+ * Design 1b puts the score itself at display size, next to the same factor
+ * rows it always had. Nothing was traded away for the type scale: every
+ * number that used to be on this card is still on it.
  */
 
 /** Applied to any bar or cell whose score is a commits-only estimate. */
@@ -29,7 +33,9 @@ function TodayScore({ today }: { today: FlowToday }) {
   return (
     <>
       <div className="flex items-baseline gap-3">
-        <span className={`font-mono text-[34px] leading-none ${TIER_TEXT[today.tier]}`}>
+        <span
+          className={`font-mono text-[46px] font-semibold leading-none ${TIER_TEXT[today.tier]}`}
+        >
           {today.score}
         </span>
         <div className="min-w-0">
@@ -77,14 +83,19 @@ export function FlowScoreCard({ flow }: { flow: FlowScore }) {
   const anyEstimated = flow.heat.some((cell) => cell.backfilled && cell.score > 0);
 
   return (
-    <section className="rounded border border-maestro-border bg-maestro-card p-3">
+    <section
+      aria-label="Flow score"
+      className="rounded-[10px] border border-maestro-border bg-maestro-card p-4"
+    >
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           {flow.today ? (
             <TodayScore today={flow.today} />
           ) : (
             <div>
-              <div className="font-mono text-[34px] leading-none text-maestro-muted">—</div>
+              <div className="font-mono text-[46px] font-semibold leading-none text-maestro-muted">
+                no score
+              </div>
               <p className="mt-1 text-[11px] text-maestro-muted">
                 No score yet. Nothing has been committed, edited or shipped today, and scoring an
                 untouched day only measures the absence.

@@ -130,6 +130,7 @@ struct PtySession {
 }
 
 struct Inner {
+    attachments: Arc<super::session_attachments::SessionAttachmentService>,
     sessions: DashMap<u32, PtySession>,
     next_id: AtomicU32,
     /// Tracks last spawn time on Windows to pace rapid consecutive spawns
@@ -231,11 +232,18 @@ impl Default for ProcessManager {
 }
 
 impl ProcessManager {
+    pub fn attachments(&self) -> &Arc<super::session_attachments::SessionAttachmentService> {
+        &self.inner.attachments
+    }
+
     /// Creates a new manager with no active sessions.
     /// Session IDs start at 1 and increment atomically.
     pub fn new() -> Self {
         Self {
             inner: Arc::new(Inner {
+                attachments: Arc::new(
+                    super::session_attachments::SessionAttachmentService::default(),
+                ),
                 sessions: DashMap::new(),
                 next_id: AtomicU32::new(1),
                 #[cfg(windows)]
@@ -337,10 +345,7 @@ impl ProcessManager {
             cmd.env("LANG", "en_US.UTF-8");
         }
 
-        // Prevent Claude Code from thinking it's nested inside another session.
-        // Maestro may have been launched from a Claude Code terminal, so strip
-        // the marker env var so terminals inside Maestro can start fresh sessions.
-        cmd.env_remove("CLAUDECODE");
+        strip_nesting_markers(&mut cmd);
 
         // Inject MAESTRO_SESSION_ID automatically (used by MCP status server)
         cmd.env("MAESTRO_SESSION_ID", id.to_string());
@@ -627,6 +632,10 @@ impl ProcessManager {
             .1;
 
         let pid = session.child_pid;
+        let attachments = self.inner.attachments.clone();
+        tokio::spawn(async move {
+            attachments.close(session_id).await;
+        });
 
         // Take the child handle out of the session so the process can be
         // REAPED, not just signaled. `libc::kill(pid, 0)` succeeds on a zombie
@@ -821,9 +830,58 @@ impl ProcessManager {
     }
 }
 
+/// Removes the markers that make a freshly spawned shell believe it is already
+/// inside something.
+///
+/// Maestro can be started from a terminal that is itself inside another tool,
+/// and the child inherits that tool's marker variables. Claude Code then
+/// refuses to start a fresh session.
+fn strip_nesting_markers(cmd: &mut CommandBuilder) {
+    cmd.env_remove("CLAUDECODE");
+    // tmux refuses to nest, so a session launched from a Maestro that is
+    // itself running inside tmux would never get its own tmux session: the
+    // launch would fall to the error path and the work would die with the
+    // app. Stripping the markers is what lets a session start fresh.
+    cmd.env_remove("TMUX");
+    cmd.env_remove("TMUX_PANE");
+}
+
 #[cfg(test)]
 mod tests {
-    use super::Utf8Decoder;
+    use super::{strip_nesting_markers, Utf8Decoder};
+    use portable_pty::CommandBuilder;
+
+    // A session shell must not inherit the markers of whatever Maestro itself
+    // was launched from. `tmux new-session` refuses to nest ("sessions should
+    // be nested with care, unset $TMUX to force"), so a session started from a
+    // Maestro that is running inside tmux would never get its own tmux session
+    // and would die with the app.
+    //
+    // The markers are set on the builder rather than on this process: mutating
+    // the environment inside a parallel test binary races every other test
+    // that reads it, and leaves the value set for everything that runs after.
+    #[test]
+    fn session_shell_does_not_inherit_nesting_markers() {
+        let mut cmd = CommandBuilder::new("/bin/sh");
+        cmd.env("TMUX", "/private/tmp/tmux-502/default,12479,19");
+        cmd.env("TMUX_PANE", "%19");
+        cmd.env("CLAUDECODE", "1");
+
+        strip_nesting_markers(&mut cmd);
+
+        assert!(
+            cmd.get_env("TMUX").is_none(),
+            "TMUX must not reach the session shell"
+        );
+        assert!(
+            cmd.get_env("TMUX_PANE").is_none(),
+            "TMUX_PANE must not reach the session shell"
+        );
+        assert!(
+            cmd.get_env("CLAUDECODE").is_none(),
+            "CLAUDECODE must not reach the session shell"
+        );
+    }
 
     #[test]
     fn decode_passes_valid_utf8_through() {

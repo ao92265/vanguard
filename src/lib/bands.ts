@@ -68,6 +68,13 @@ export type BandItem =
 
 export interface Bands {
   blocked: BandItem[];
+  /**
+   * Handoff files you can pick up. Deliberately NOT part of `blocked`: a file
+   * on disk is available work, not a person waiting for an answer, and
+   * counting it as blocked made the inbox claim several people needed you
+   * when none did.
+   */
+  parked: BandItem[];
   landed: BandItem[];
   running: BandItem[];
   /** Fleet strip: live count per session status, zero-filled. */
@@ -177,10 +184,11 @@ export function assembleBands({
     };
   };
 
-  /* Band 1 — blocked on you. Sessions asking or failed, then PRs a reviewer
-     bounced, then parked handoffs. A handoff is dropped when any live session
-     already sits in its directory: the session row IS that work. */
+  /* Band 1 — blocked on you: someone or something is waiting on an answer.
+     Sessions asking or failed, runs stopped at a gate, PRs a reviewer
+     bounced. Handoff files are NOT here, they are band 4. */
   const blocked: BandItem[] = [];
+  const parked: BandItem[] = [];
   for (const status of BLOCKED_ORDER) {
     for (const s of sessions.filter((x) => x.status === status)) blocked.push(toSessionItem(s));
   }
@@ -213,8 +221,10 @@ export function assembleBands({
     return true;
   });
   const moreHandoffs = Math.max(0, dedupedHandoffs.length - PARKED_HANDOFF_ROWS);
+  /* Band 4 — parked. A handoff is dropped when any live session already sits
+     in its directory: the session row IS that work. */
   for (const h of dedupedHandoffs.slice(0, PARKED_HANDOFF_ROWS)) {
-    blocked.push({ kind: "handoff", handoff: h });
+    parked.push({ kind: "handoff", handoff: h });
   }
 
   /* Band 2 — landed since you looked. Done sessions are always shown (they
@@ -234,5 +244,5 @@ export function assembleBands({
     .filter((s) => RUNNING_STATUSES.includes(s.status))
     .map(toSessionItem);
 
-  return { blocked, landed, running, counts, moreHandoffs };
+  return { blocked, parked, landed, running, counts, moreHandoffs };
 }

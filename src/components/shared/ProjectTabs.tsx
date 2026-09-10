@@ -6,21 +6,17 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
-import { restrictToHorizontalAxis } from "@dnd-kit/modifiers";
-import { horizontalListSortingStrategy, SortableContext, useSortable } from "@dnd-kit/sortable";
+import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
+import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Minus, PanelLeft, Plus, Square, X } from "lucide-react";
-import { useCallback, useMemo, useRef } from "react";
+import { Plus, X } from "lucide-react";
+import { useCallback, useRef } from "react";
 import { STATUS_COLORS, useProjectStatus } from "@/hooks/useProjectStatus";
-import { isMac } from "@/lib/platform";
 
 export type ProjectTab = {
   id: string;
   name: string;
   active: boolean;
-  /** Project accent color (name-derived, matches the eagle view's tile borders). */
-  color?: string;
 };
 
 interface ProjectTabsProps {
@@ -28,8 +24,6 @@ interface ProjectTabsProps {
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
   onNewTab: () => void;
-  onToggleSidebar: () => void;
-  sidebarOpen: boolean;
   onReorderTab: (activeId: string, overId: string) => void;
   onMoveTab: (tabId: string, direction: "left" | "right") => void;
 }
@@ -69,16 +63,6 @@ function TabItem({
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
-    // Project accent as a 2px underline (inset shadow avoids affecting layout).
-    // Dimmed on inactive tabs so the active tab stays the focal point.
-    // color-mix (not a hex alpha suffix) because the accents are hsl() strings.
-    ...(tab.color
-      ? {
-          boxShadow: `inset 0 -2px 0 0 ${
-            tab.active ? tab.color : `color-mix(in srgb, ${tab.color} 50%, transparent)`
-          }`,
-        }
-      : {}),
   };
 
   return (
@@ -92,22 +76,27 @@ function TabItem({
       tabIndex={tab.active ? 0 : -1}
       onClick={onSelect}
       onKeyDown={onKeyDown}
-      className={`flex items-center gap-1.5 rounded-t px-2 py-1.5 text-xs font-medium cursor-pointer ${
+      aria-label={
+        sessionCount > 0
+          ? `${tab.name}, ${sessionCount} ${sessionCount === 1 ? "session" : "sessions"}`
+          : tab.name
+      }
+      className={`workbench-project-row flex w-full shrink-0 cursor-pointer items-center justify-between gap-2 rounded-md text-xs font-medium ${
         tab.active
           ? "bg-maestro-bg text-maestro-text"
           : "text-maestro-muted hover:text-maestro-text"
       }`}
     >
-      <span className="flex items-center gap-1.5">
+      <span className="flex min-w-0 items-center gap-2">
         <span
-          className={`h-2 w-2 rounded-full ${STATUS_COLORS[status]} ${
+          className={`h-2 w-2 shrink-0 rounded-full ${STATUS_COLORS[status]} ${
             shouldPulse ? "animate-pulse" : ""
           }`}
         />
-        <span>{tab.name}</span>
+        <span className="workbench-rail-label truncate">{tab.name}</span>
         {sessionCount > 0 && (
           <span
-            className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+            className={`workbench-rail-label workbench-project-count shrink-0 text-[10px] font-medium ${
               status === "needs-input"
                 ? "bg-maestro-accent/20 text-maestro-accent"
                 : status === "working"
@@ -126,7 +115,7 @@ function TabItem({
           onClose();
         }}
         onPointerDown={(e) => e.stopPropagation()}
-        className="ml-1 rounded p-0.5 hover:bg-maestro-border"
+        className="workbench-project-close ml-1 shrink-0 rounded p-0.5 hover:bg-maestro-border"
         aria-label={`Close ${tab.name}`}
       >
         <X size={10} />
@@ -140,13 +129,9 @@ export function ProjectTabs({
   onSelectTab,
   onCloseTab,
   onNewTab,
-  onToggleSidebar,
-  sidebarOpen,
   onReorderTab,
   onMoveTab,
 }: ProjectTabsProps) {
-  const appWindow = useMemo(() => getCurrentWindow(), []);
-
   // Ref map for focus management (WAI-ARIA tablist keyboard navigation)
   const tabRefs = useRef(new Map<string, HTMLElement>());
   const setTabRef = useCallback(
@@ -179,23 +164,27 @@ export function ProjectTabs({
   const handleTabKeyDown = useCallback(
     (e: React.KeyboardEvent, tab: ProjectTab) => {
       const isMeta = e.metaKey || e.ctrlKey;
+      const backwards = e.key === "ArrowLeft" || e.key === "ArrowUp";
+      const forwards = e.key === "ArrowRight" || e.key === "ArrowDown";
 
       // Cmd/Ctrl+Shift+Arrow: move tab position
-      if (isMeta && e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+      if (isMeta && e.shiftKey && (backwards || forwards)) {
         e.preventDefault();
-        onMoveTab(tab.id, e.key === "ArrowLeft" ? "left" : "right");
+        onMoveTab(tab.id, backwards ? "left" : "right");
         return;
       }
 
       // Arrow keys: switch tab focus
-      if (e.key === "ArrowRight") {
+      if (forwards) {
+        e.preventDefault();
         const idx = tabs.findIndex((t) => t.id === tab.id);
         const next = tabs[(idx + 1) % tabs.length];
         if (next) {
           onSelectTab(next.id);
           tabRefs.current.get(next.id)?.focus();
         }
-      } else if (e.key === "ArrowLeft") {
+      } else if (backwards) {
+        e.preventDefault();
         const idx = tabs.findIndex((t) => t.id === tab.id);
         const prev = tabs[(idx - 1 + tabs.length) % tabs.length];
         if (prev) {
@@ -211,98 +200,53 @@ export function ProjectTabs({
   );
 
   return (
-    <div
-      data-tauri-drag-region
-      className="theme-transition no-select flex h-9 items-center border-b border-maestro-border bg-maestro-surface"
-    >
-      {/* Left: sidebar toggle + tabs (inset from CSS var for macOS traffic lights) */}
-      <div
-        className="flex items-center gap-0.5 pr-1.5"
-        style={{ paddingLeft: "max(var(--mac-title-bar-inset, 0px), 6px)" }}
-      >
-        <button
-          type="button"
-          onClick={onToggleSidebar}
-          className={`rounded p-1.5 transition-colors ${
-            sidebarOpen
-              ? "text-maestro-accent hover:bg-maestro-accent/10"
-              : "text-maestro-muted hover:bg-maestro-border hover:text-maestro-text"
-          }`}
-          aria-label="Toggle sidebar"
-        >
-          <PanelLeft size={14} />
-        </button>
-
-        <div className="mx-1 h-4 w-px bg-maestro-border" />
-
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          modifiers={[restrictToHorizontalAxis]}
-          onDragEnd={handleDragEnd}
-        >
-          <SortableContext items={tabs.map((t) => t.id)} strategy={horizontalListSortingStrategy}>
-            <div role="tablist" aria-label="Open projects" className="flex items-center gap-0.5">
-              {tabs.length === 0 ? (
-                <span className="px-2 text-xs text-maestro-muted">No projects</span>
-              ) : (
-                tabs.map((tab) => (
-                  <TabItem
-                    key={tab.id}
-                    tab={tab}
-                    onSelect={() => onSelectTab(tab.id)}
-                    onClose={() => onCloseTab(tab.id)}
-                    onKeyDown={(e) => handleTabKeyDown(e, tab)}
-                    tabRefCallback={setTabRef(tab.id)}
-                  />
-                ))
-              )}
-            </div>
-          </SortableContext>
-        </DndContext>
-
-        <button
-          type="button"
-          onClick={onNewTab}
-          className="rounded p-1 text-maestro-muted hover:bg-maestro-border hover:text-maestro-text"
-          aria-label="Open new project"
-        >
-          <Plus size={14} />
-        </button>
+    <section className="workbench-projects">
+      <div className="workbench-project-heading workbench-rail-label">
+        <h2 className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-maestro-muted">
+          Projects <span className="ml-1 opacity-60">{tabs.length}</span>
+        </h2>
       </div>
-
-      {/* Center: drag region fills remaining space */}
-      <div data-tauri-drag-region className="flex-1" />
-
-      {/* Right: window controls (hidden on macOS — custom traffic lights in row instead) */}
-      {!isMac() && (
-        <div className="flex items-center">
-          <button
-            type="button"
-            onClick={() => appWindow.minimize()}
-            className="flex h-9 w-11 items-center justify-center text-maestro-muted transition-colors hover:bg-maestro-muted/10 hover:text-maestro-text"
-            aria-label="Minimize"
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        modifiers={[restrictToVerticalAxis]}
+        onDragEnd={handleDragEnd}
+      >
+        <SortableContext items={tabs.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+          <div
+            role="tablist"
+            aria-label="Open projects"
+            aria-orientation="vertical"
+            className="flex min-h-0 flex-col overflow-y-auto"
           >
-            <Minus size={14} />
-          </button>
-          <button
-            type="button"
-            onClick={() => appWindow.toggleMaximize()}
-            className="flex h-9 w-11 items-center justify-center text-maestro-muted transition-colors hover:bg-maestro-muted/10 hover:text-maestro-text"
-            aria-label="Maximize"
-          >
-            <Square size={12} />
-          </button>
-          <button
-            type="button"
-            onClick={() => appWindow.close()}
-            className="flex h-9 w-11 items-center justify-center text-maestro-muted transition-colors hover:bg-maestro-red/80 hover:text-white"
-            aria-label="Close"
-          >
-            <X size={14} />
-          </button>
-        </div>
-      )}
-    </div>
+            {tabs.length === 0 ? (
+              <span className="px-2 py-3 text-xs text-maestro-muted">Open a project to begin.</span>
+            ) : (
+              tabs.map((tab) => (
+                <TabItem
+                  key={tab.id}
+                  tab={tab}
+                  onSelect={() => onSelectTab(tab.id)}
+                  onClose={() => onCloseTab(tab.id)}
+                  onKeyDown={(e) => handleTabKeyDown(e, tab)}
+                  tabRefCallback={setTabRef(tab.id)}
+                />
+              ))
+            )}
+          </div>
+        </SortableContext>
+      </DndContext>
+      <button
+        type="button"
+        onClick={onNewTab}
+        aria-label="Open new project"
+        className="workbench-rail-row"
+      >
+        <span className="workbench-rail-icon">
+          <Plus size={15} />
+        </span>
+        <span className="workbench-rail-label">Open project</span>
+      </button>
+    </section>
   );
 }

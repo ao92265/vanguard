@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /* The workspace and watchdog stores persist through the Tauri plugin-store,
@@ -97,6 +97,33 @@ function pr(): PullRequestInfo {
   } as PullRequestInfo;
 }
 
+/** Local-midnight-safe offset: the rails are days as the user's clock reads them. */
+function daysAgo(days: number): string {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function mergedPr(number: number, title: string, mergedAt: string | null): PullRequestInfo {
+  return {
+    number,
+    title,
+    url: `https://example.test/pr/${number}`,
+    headRefName: "feat/importer",
+    additions: 12,
+    deletions: 3,
+    mergedAt,
+  } as PullRequestInfo;
+}
+
+function mergedRepo(merged: PullRequestInfo[] = [mergedPr(1, "Widen the importer", daysAgo(0))]) {
+  return {
+    repoPath: "/tmp/proj-a",
+    projectName: "proj-a",
+    changesRequested: [],
+    merged,
+    error: null,
+  } satisfies RepoPrs;
+}
+
 function changesRequestedRepo(): RepoPrs {
   return {
     repoPath: "/tmp/proj-a",
@@ -157,14 +184,62 @@ describe("BoardView", () => {
     useGitHubWatchdogStore.setState({ projects: [] });
   });
 
-  it("renders all six columns, each empty column saying what is empty", () => {
+  it("offers every stage without filling the empty ledger with placeholder columns", () => {
     renderBoard();
 
     for (const title of ["Suggested", "Planning", "Building", "Checking", "Review", "Done"]) {
-      expect(screen.getByRole("region", { name: title })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: `Filter ${title}` })).toBeInTheDocument();
     }
-    expect(screen.getByText("No handoffs are waiting on disk.")).toBeInTheDocument();
+    expect(screen.getByText("No live work yet")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Filter Building" }));
     expect(screen.getByText("Nothing is being built.")).toBeInTheDocument();
+  });
+
+  it("filters visible work and keyboard activation to the chosen stage", () => {
+    useSessionStore.setState({ sessions: [session(1, "Working"), session(2, "Done")] });
+    useWorkspaceStore.setState({ tabs: [tab()] });
+    const handlers = renderBoard();
+    fireEvent.keyDown(window, { key: "j" });
+    fireEvent.click(screen.getByRole("button", { name: "Filter Done" }));
+    expect(screen.queryByText("doing step 1")).not.toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "Enter" });
+    expect(handlers.onNavigateSession).not.toHaveBeenCalled();
+    fireEvent.keyDown(window, { key: "j" });
+    fireEvent.keyDown(window, { key: "Enter" });
+    expect(handlers.onNavigateSession).toHaveBeenCalledWith("t1", 2);
+  });
+
+  it("does not activate a selected card when Enter is used on a filter button", () => {
+    useSessionStore.setState({ sessions: [session(1, "Working")] });
+    useWorkspaceStore.setState({ tabs: [tab()] });
+    const handlers = renderBoard();
+    fireEvent.keyDown(window, { key: "j" });
+    fireEvent.keyDown(screen.getByRole("button", { name: "Filter Review" }), { key: "Enter" });
+    expect(handlers.onNavigateSession).not.toHaveBeenCalled();
+  });
+
+  it("moves keyboard focus from a filter into visible work with j", () => {
+    useSessionStore.setState({ sessions: [session(1, "Working")] });
+    useWorkspaceStore.setState({ tabs: [tab()] });
+    const handlers = renderBoard();
+    const filter = screen.getByRole("button", { name: "Filter Building" });
+    fireEvent.click(filter);
+    filter.focus();
+    fireEvent.keyDown(filter, { key: "j" });
+    expect(selectedCard()).toHaveFocus();
+    expect(selectedCard()?.textContent).toContain("doing step 1");
+    filter.focus();
+    fireEvent.keyDown(filter, { key: "j" });
+    expect(selectedCard()).toHaveFocus();
+    fireEvent.click(document.activeElement as HTMLElement);
+    expect(handlers.onNavigateSession).toHaveBeenCalledWith("t1", 1);
+  });
+
+  it("keeps failed-source warnings visible when that stage is filtered out", () => {
+    useBandStore.setState({ processesError: "Process scan unavailable" });
+    renderBoard();
+    fireEvent.click(screen.getByRole("button", { name: "Filter Done" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Process scan unavailable");
   });
 
   it("routes live work into the column its stage says it is in", () => {
@@ -396,6 +471,7 @@ describe("BoardView", () => {
     renderBoard();
 
     expect(column("Suggested").getByText("STALE")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Filter Building" }));
     expect(column("Building").queryByText("STALE")).not.toBeInTheDocument();
   });
 
@@ -426,6 +502,7 @@ describe("BoardView", () => {
 
     expect(column("Building").getByText("STALE")).toBeInTheDocument();
     expect(column("Suggested").getByText("STALE")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Filter Review" }));
     expect(column("Review").queryByText("STALE")).not.toBeInTheDocument();
   });
 
@@ -484,5 +561,149 @@ describe("BoardView", () => {
     renderBoard();
 
     expect(screen.getByText("FACTORY STALE")).toBeInTheDocument();
+  });
+  it("titles each screen once, in the shared header", () => {
+    // The Board and the Ledger are one overlay with one header, so the header
+    // title is the page's h1 on both faces, and nothing below it repeats that
+    // title as a second heading.
+    useSessionStore.setState({ sessions: [session(1, "Working")] });
+    useWorkspaceStore.setState({ tabs: [tab()] });
+
+    renderBoard();
+    expect(screen.getByRole("heading", { level: 1, name: "Board" })).toBeVisible();
+
+    cleanup();
+    renderBoard({ mode: "ledger" });
+    expect(screen.getByRole("heading", { level: 1, name: "Ledger" })).toBeVisible();
+    /* One title per screen: the chrome's "Ledger" is it. The panel below must
+       not repeat it as a second visible heading (design 1b, ruling 6). */
+    expect(screen.queryByRole("heading", { name: /work ledger/i })).not.toBeInTheDocument();
+  });
+
+  it("shows the board's stages as lanes, and the ledger only in ledger mode", () => {
+    useSessionStore.setState({ sessions: [session(1, "Working")] });
+    useWorkspaceStore.setState({ tabs: [tab()] });
+
+    renderBoard();
+
+    expect(screen.getByRole("region", { name: "Building" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Work ledger" })).not.toBeInTheDocument();
+  });
+
+  it("shows the work ledger instead of the lanes in ledger mode", () => {
+    useSessionStore.setState({ sessions: [session(1, "Working")] });
+    useWorkspaceStore.setState({ tabs: [tab()] });
+    useBandStore.setState({ repoPrs: [mergedRepo()] });
+
+    renderBoard({ mode: "ledger" });
+
+    const ledger = within(screen.getByRole("region", { name: "Work ledger" }));
+    expect(ledger.getByText(/Widen the importer/)).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Building" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Filter Building" })).not.toBeInTheDocument();
+  });
+
+  it("groups ledger records onto day rails and expands the newest day", () => {
+    useBandStore.setState({
+      repoPrs: [
+        mergedRepo([
+          mergedPr(1, "Widen the importer", daysAgo(0)),
+          mergedPr(2, "Narrow the exporter", daysAgo(1)),
+        ]),
+      ],
+    });
+
+    renderBoard({ mode: "ledger" });
+
+    const rails = screen.getAllByRole("button", { name: /^Expand / });
+    expect(rails.map((rail) => rail.textContent)).toEqual([
+      expect.stringContaining("Today"),
+      expect.stringContaining("Yesterday"),
+    ]);
+
+    const expanded = within(screen.getByRole("region", { name: /expanded$/ }));
+    expect(expanded.getByText(/Widen the importer/)).toBeInTheDocument();
+    expect(expanded.queryByText(/Narrow the exporter/)).not.toBeInTheDocument();
+
+    fireEvent.click(rails[1]);
+    const yesterday = within(screen.getByRole("region", { name: /expanded$/ }));
+    expect(yesterday.getByText(/Narrow the exporter/)).toBeInTheDocument();
+  });
+
+  it("keeps a record whose timestamp cannot be read, on its own rail", () => {
+    useActStore.setState({ runs: [{ ...run("build"), createdAt: null, updatedAt: null }] });
+
+    renderBoard({ mode: "ledger" });
+
+    const rail = screen.getByRole("button", { name: /^Expand No date/ });
+    expect(rail).toBeInTheDocument();
+    fireEvent.click(rail);
+    expect(
+      within(screen.getByRole("region", { name: /expanded$/ })).getByText("Ship the importer"),
+    ).toBeInTheDocument();
+  });
+
+  it("says the ledger is empty rather than drawing rails with nothing on them", () => {
+    renderBoard({ mode: "ledger" });
+
+    expect(screen.getByText("Nothing recorded yet")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Expand / })).not.toBeInTheDocument();
+  });
+
+  it("counts only what the ledger sources carry, and claims no spend or host", () => {
+    useBandStore.setState({
+      repoPrs: [mergedRepo([mergedPr(1, "Widen the importer", daysAgo(0))])],
+      handoffs: [handoff()],
+    });
+    useActStore.setState({ runs: [run("build")] });
+
+    renderBoard({ mode: "ledger" });
+
+    const ledger = within(screen.getByRole("region", { name: "Work ledger" }));
+    expect(ledger.getByRole("figure", { name: "1 merged" })).toBeInTheDocument();
+    expect(ledger.getByRole("figure", { name: "1 runs" })).toBeInTheDocument();
+    expect(ledger.getByRole("figure", { name: "1 handoffs" })).toBeInTheDocument();
+    expect(ledger.queryByText(/\$/)).not.toBeInTheDocument();
+    expect(ledger.queryByText(/remote/i)).not.toBeInTheDocument();
+  });
+
+  it("calls the ledger's handoff records handoffs, never sessions", () => {
+    /* The fleet strip under the ledger counts real live sessions. One screen
+       must not use the same word for two different populations. */
+    useBandStore.setState({ handoffs: [handoff()] });
+
+    renderBoard({ mode: "ledger" });
+
+    const ledger = within(screen.getByRole("region", { name: "Work ledger" }));
+    expect(ledger.getByText("HANDOFF")).toBeInTheDocument();
+    expect(ledger.queryByText(/session/i)).not.toBeInTheDocument();
+  });
+
+  it("does not count a run with no repo as a project of its own", () => {
+    /* "Factory run" is the label for a run ACT never attributed to a repo.
+       Counting the placeholder as a project inflates both the tile and the
+       header line. */
+    useBandStore.setState({ repoPrs: [mergedRepo()] });
+    useActStore.setState({ runs: [{ ...run("build"), repoUrl: null }] });
+
+    renderBoard({ mode: "ledger" });
+
+    const ledger = within(screen.getByRole("region", { name: "Work ledger" }));
+    expect(ledger.getByRole("figure", { name: "1 projects" })).toBeInTheDocument();
+    expect(screen.getByText("2 records across 1 project")).toBeInTheDocument();
+    expect(ledger.getByText(/1 record names no project/)).toBeInTheDocument();
+  });
+
+  it("counts a repo once when a pull request and a run spell it differently", () => {
+    useBandStore.setState({ repoPrs: [mergedRepo()], handoffs: [] });
+    useActStore.setState({
+      runs: [{ ...run("build"), repoUrl: "https://example.test/acme/proj-a.git" }],
+    });
+
+    renderBoard({ mode: "ledger" });
+
+    const ledger = within(screen.getByRole("region", { name: "Work ledger" }));
+    expect(ledger.getByRole("figure", { name: "1 projects" })).toBeInTheDocument();
+    expect(ledger.queryByText(/names no project/)).not.toBeInTheDocument();
   });
 });

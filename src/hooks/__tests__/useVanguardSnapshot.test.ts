@@ -53,7 +53,27 @@ describe("buildSnapshot", () => {
       repoPrs: [],
       watermarkMs: 0,
       externallyActiveDirs: new Set<string>(),
+      tmuxSessions: [],
     });
+  });
+
+  it("publishes the same in-progress total the Building column shows", () => {
+    /* The status line in the terminal reads this number rather than counting
+       for itself: two tallies of "what is running" computed in two places is
+       how the bar and the board came to disagree in the first place. */
+    useBandStore.setState({
+      tmuxSessions: [
+        { name: "one", cwd: "/tmp/one", attached: true, created: 0, windows: 1 },
+        { name: "two", cwd: "/tmp/two", attached: false, created: 0, windows: 1 },
+      ],
+      /* A tmux session only counts once a claude is actually live in its
+         directory, which is the rule the Building column itself now uses.
+         The third card is the live directory with no tmux session of its
+         own. */
+      externallyActiveDirs: new Set(["/tmp/one", "/tmp/two", "/tmp/elsewhere"]),
+    });
+
+    expect(buildSnapshot().buildingCount).toBe(3);
   });
 
   it("does not report a handoff as parked while a claude runs in its directory outside Maestro", () => {
@@ -63,7 +83,7 @@ describe("buildSnapshot", () => {
     });
 
     const snapshot = buildSnapshot();
-    const labels = (snapshot.blocked as { label: string }[]).map((b) => b.label);
+    const labels = (snapshot.parked as { label: string }[]).map((b) => b.label);
 
     expect(labels).toContain("Parked: proj-idle");
     expect(labels).not.toContain("Parked: proj-live");

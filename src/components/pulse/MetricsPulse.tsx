@@ -2,40 +2,76 @@ import type { PulseMetrics, PulseSpark } from "@/lib/pulse";
 
 /**
  * The day in numbers: what shipped, what was touched, what the agents did,
- * and what is still waiting on you — with an hour-by-hour sparkline over it.
+ * and what is still waiting on you, with an hour-by-hour timeline over it.
+ *
+ * Design 1b's Pulse leads with four numbers at display size and one wide
+ * timeline. The four are this app's own headline counts, not the reference's:
+ * it shows agent-hours, average wait and interruptions, and nothing in Maestro
+ * measures any of the three (see the task report). The timeline keeps its
+ * commit marks under the bars, because "when did something actually land"
+ * is the half of the day the tool-call bars cannot tell you.
  */
 
+/** The reference's axis: first, middle and last label, not one per bar. */
+function axisLabels(hours: string[]): string[] {
+  if (hours.length <= 3) return hours;
+  return [hours[0], hours[Math.floor((hours.length - 1) / 2)], hours[hours.length - 1]];
+}
+
 /** Tool calls per hour, with the hours something landed marked underneath. */
-function Sparkline({ spark }: { spark: PulseSpark }) {
+function Timeline({ spark }: { spark: PulseSpark }) {
   const peak = Math.max(...spark.activity, 1);
   return (
-    <div className="flex items-end gap-1" role="img" aria-label="Tool calls by hour">
-      {spark.hours.map((label, index) => (
-        <div key={label} className="flex flex-1 flex-col items-center gap-1">
-          <div className="flex h-12 w-full items-end">
+    <div>
+      <div
+        className="flex h-[110px] items-end gap-[5px]"
+        role="img"
+        aria-label="Tool calls by hour"
+      >
+        {spark.hours.map((label, index) => {
+          const value = spark.activity[index];
+          return (
             <div
-              className="w-full rounded-t bg-maestro-blue/60"
-              style={{ height: `${Math.max((spark.activity[index] / peak) * 100, 2)}%` }}
-              title={`${label} · ${spark.activity[index]} tool calls, ${spark.commits[index]} commits`}
+              key={label}
+              className={`flex-1 rounded-[2px] opacity-80 ${
+                value >= peak * 0.6 && value > 0 ? "bg-maestro-accent" : "bg-maestro-blue"
+              }`}
+              style={{ height: `${Math.max((value / peak) * 100, 2)}%` }}
+              title={`${label} · ${value} tool calls, ${spark.commits[index]} commits`}
             />
-          </div>
+          );
+        })}
+      </div>
+      <div className="mt-[5px] flex gap-[5px]" role="img" aria-label="Hours something landed">
+        {spark.hours.map((label, index) => (
           <span
-            className="h-1 w-full rounded-full bg-maestro-green"
+            key={label}
+            className="h-[3px] flex-1 rounded-full bg-maestro-green"
             style={{ opacity: spark.commits[index] > 0 ? 1 : 0 }}
+            title={`${label} · ${spark.commits[index]} commits`}
           />
-          <span className="text-[9px] text-maestro-muted">{label}</span>
-        </div>
-      ))}
+        ))}
+      </div>
+      <div className="mt-[7px] flex justify-between font-mono text-[10px] text-maestro-muted">
+        {axisLabels(spark.hours).map((label) => (
+          <span key={label}>{label}</span>
+        ))}
+      </div>
     </div>
   );
 }
 
-function Headline({ value, label }: { value: number; label: string }) {
+/** One display-size number and the words for what it counts. */
+function Headline({ value, label, tone }: { value: number; label: string; tone?: string }) {
   return (
-    <div className="rounded border border-maestro-border bg-maestro-bg px-2 py-1.5">
-      <div className="font-mono text-[18px] leading-none text-maestro-text">{value}</div>
-      <div className="mt-1 text-[10px] uppercase tracking-wider text-maestro-muted">{label}</div>
-    </div>
+    <figure className="m-0" aria-label={`${value} ${label}`}>
+      <div
+        className={`font-mono text-[46px] font-semibold leading-none ${tone ?? "text-maestro-text"}`}
+      >
+        {value}
+      </div>
+      <figcaption className="mt-[7px] font-mono text-[11px] text-maestro-muted">{label}</figcaption>
+    </figure>
   );
 }
 
@@ -54,23 +90,25 @@ export function MetricsPulse({ metrics }: { metrics: PulseMetrics }) {
   const nothingYet = shipped.commits === 0 && activity.toolCalls === 0 && shipped.prsOpened === 0;
 
   return (
-    <section className="rounded border border-maestro-border bg-maestro-card p-3">
-      <div className="grid grid-cols-4 gap-2">
+    <section className="flex flex-col gap-[26px]" aria-label="Today in numbers">
+      <div className="flex flex-wrap items-baseline gap-x-[34px] gap-y-4">
         <Headline value={headline.commits} label="commits" />
-        <Headline value={headline.prs} label="PRs" />
-        <Headline value={headline.repos} label="repos" />
-        <Headline value={headline.waiting} label="waiting" />
+        <Headline value={headline.prs} label="pull requests" />
+        <Headline value={headline.repos} label="repos touched" />
+        <Headline
+          value={headline.waiting}
+          label="waiting on you"
+          tone={headline.waiting > 0 ? "text-maestro-accent" : undefined}
+        />
       </div>
 
       {nothingYet ? (
-        <p className="mt-3 text-[11px] text-maestro-muted">{metrics.empty}</p>
+        <p className="text-[11px] text-maestro-muted">{metrics.empty}</p>
       ) : (
-        <div className="mt-3">
-          <Sparkline spark={metrics.spark} />
-        </div>
+        <Timeline spark={metrics.spark} />
       )}
 
-      <div className="mt-3 grid gap-x-6 gap-y-1 border-t border-maestro-border pt-3 sm:grid-cols-2">
+      <div className="grid gap-x-6 gap-y-1 border-t border-maestro-border pt-3 sm:grid-cols-2">
         <Row
           label="Shipped"
           value={`${shipped.commits} commits · ${shipped.prsOpened} opened · ${shipped.prsMerged} merged`}

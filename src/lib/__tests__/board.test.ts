@@ -660,6 +660,112 @@ describe("assembleBoard live outside-Maestro cards (WP7)", () => {
   });
 });
 
+describe("tmux sessions on the board", () => {
+  const tmux = (name: string, cwd: string, attached = false) => ({
+    name,
+    cwd,
+    attached,
+    created: 1_757_404_975,
+    windows: 1,
+  });
+
+  /* Alex runs most of his agents in tmux. Before this the app showed none of
+     them, so the board claimed nothing was building while five were. */
+  it("shows a tmux session as work being built, named and marked as tmux", () => {
+    const columns = assembleBoard({
+      ...EMPTY,
+      tabs: TABS,
+      tmuxSessions: [tmux("cc-aoreilly-4", "/repo/act", true)],
+    });
+
+    const card = columns.building.find((c) => c.kind === "tmux");
+    expect(card).toBeDefined();
+    expect(card?.objective).toBe("cc-aoreilly-4");
+    expect(card?.stageLabel).toBe("Attached in tmux");
+    expect(card?.projectName).toBe("act");
+    // The app did not start it, so it cannot know that anyone is being asked.
+    expect(card?.needsYou).toBe(false);
+  });
+
+  it("says when nobody is attached, rather than implying someone is watching", () => {
+    const columns = assembleBoard({
+      ...EMPTY,
+      tabs: TABS,
+      tmuxSessions: [tmux("cc-aoreilly-5", "/repo/act", false)],
+    });
+
+    expect(columns.building.find((c) => c.kind === "tmux")?.stageLabel).toBe("Detached in tmux");
+  });
+
+  /* The tmux session Vanguard itself is attached to is the same work as the
+     session row, and two cards for one agent is a miscount. */
+  it("drops a tmux session that a Maestro session already stands for", () => {
+    const columns = assembleBoard({
+      ...EMPTY,
+      tabs: TABS,
+      sessions: [session(1, "Working", "/tmp/proj-a", { tmuxName: "cc-aoreilly-4" })],
+      tmuxSessions: [tmux("cc-aoreilly-4", "/repo/act", true), tmux("other", "/repo/act", false)],
+    });
+
+    const names = columns.building.filter((c) => c.kind === "tmux").map((c) => c.objective);
+    expect(names).toEqual(["other"]);
+  });
+});
+
+/* The status bar prints Building's size as the session count, so a card that is
+   not a live piece of Claude work is a wrong number in front of Alex. On
+   2026-09-09 the bar said 10 while four windows were open: every tmux Claude
+   was counted twice, once as a tmux card and once as a live-directory card, and
+   a vite dev server sitting in tmux was counted as a session too. */
+describe("Building counts one card per live piece of work", () => {
+  const tmux = (name: string, cwd: string, attached = false) => ({
+    name,
+    cwd,
+    attached,
+    created: 1_757_404_975,
+    windows: 1,
+  });
+
+  it("leaves out a tmux session with no live claude in its directory", () => {
+    const columns = assembleBoard({
+      ...EMPTY,
+      tabs: TABS,
+      tmuxSessions: [tmux("vanguard-dev", "/repo/vanguard", false)],
+      activeDirs: new Set(["/repo/elsewhere"]),
+    });
+
+    expect(columns.building.filter((c) => c.kind === "tmux")).toEqual([]);
+  });
+
+  it("shows one card, not two, when a tmux session is the live claude work", () => {
+    const columns = assembleBoard({
+      ...EMPTY,
+      tabs: TABS,
+      tmuxSessions: [tmux("cc-aoreilly", "/repo/act", false)],
+      activeDirs: new Set(["/repo/act"]),
+    });
+
+    expect(columns.building).toHaveLength(1);
+    expect(columns.building[0].kind).toBe("tmux");
+    expect(columns.building[0].objective).toBe("cc-aoreilly");
+  });
+
+  /* An empty set means the process scan failed, has not run yet, or genuinely
+     found nothing, and the three are indistinguishable here. Dropping every
+     tmux card on that would blank the board behind a permission prompt, so the
+     filter only applies once the scan has actually seen something. */
+  it("keeps every tmux session when the process scan found nothing", () => {
+    const columns = assembleBoard({
+      ...EMPTY,
+      tabs: TABS,
+      tmuxSessions: [tmux("cc-aoreilly", "/repo/act", false)],
+      activeDirs: new Set<string>(),
+    });
+
+    expect(columns.building.filter((c) => c.kind === "tmux")).toHaveLength(1);
+  });
+});
+
 describe("blockedOldestFirst", () => {
   function card(name: string, needsYou: boolean, since: string | null): BoardCardItem {
     return {

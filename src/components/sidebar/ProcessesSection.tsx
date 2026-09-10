@@ -527,7 +527,7 @@ function WatchlistEditor({ onClose }: { onClose: () => void }) {
         <button
           type="button"
           onClick={handleSave}
-          className="rounded bg-maestro-accent px-2 py-0.5 text-[11px] text-white hover:bg-maestro-accent/80"
+          className="rounded bg-maestro-accent px-2 py-0.5 text-[11px] text-maestro-on-accent hover:bg-maestro-accent/80"
         >
           Save
         </button>

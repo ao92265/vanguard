@@ -24,6 +24,7 @@ import {
   useSessionStore,
 } from "@/stores/useSessionStore";
 import { useStandupStore } from "@/stores/useStandupStore";
+import { useTmuxOrphanStore } from "@/stores/useTmuxOrphanStore";
 import { type RepositoryInfo, useWorkspaceStore } from "@/stores/useWorkspaceStore";
 import { BoardView } from "./components/board/BoardView";
 import { GitGraphPanel } from "./components/git/GitGraphPanel";
@@ -31,6 +32,7 @@ import type { GitPanelTab } from "./components/git/GitPanelTabs";
 import { BottomBar } from "./components/shared/BottomBar";
 import { EagleProjectPickerModal } from "./components/shared/EagleProjectPickerModal";
 import { FDADialog } from "./components/shared/FDADialog";
+import { GitHubWatchdogBadge } from "./components/shared/GitHubWatchdogBadge";
 import {
   MultiProjectView,
   type MultiProjectViewHandle,
@@ -42,9 +44,11 @@ import {
 } from "./components/shared/PanelResizeHandle";
 import { ProjectTabs } from "./components/shared/ProjectTabs";
 import { QuickOpenPalette } from "./components/shared/QuickOpenPalette";
-import { QuietRail } from "./components/shared/QuietRail";
+import { ToolsEdgeToggle } from "./components/shared/ToolsEdgeToggle";
 import { type EagleProjectOption, TopBar } from "./components/shared/TopBar";
 import { UtilityPanel, type UtilityPanelKind } from "./components/shared/UtilityPanel";
+import { WorkbenchDock } from "./components/shared/WorkbenchDock";
+import { WorkbenchTitleBar } from "./components/shared/WorkbenchTitleBar";
 import {
   loadSavedSidebarTab,
   Sidebar,
@@ -66,6 +70,8 @@ import type { QuickOpenItem } from "./lib/quickOpen";
 import { initActivityListener, stopActivityListener } from "./stores/useActivityStore";
 import { useActStore } from "./stores/useActStore";
 import { initAgentListener, stopAgentListener } from "./stores/useAgentStore";
+import { useBoardViewStore } from "./stores/useBoardViewStore";
+import { useFactoryViewStore } from "./stores/useFactoryViewStore";
 import { useGitHubStore } from "./stores/useGitHubStore";
 import {
   useGitHubWatchdogStore,
@@ -75,9 +81,12 @@ import {
 } from "./stores/useGitHubWatchdogStore";
 import { useGitStore } from "./stores/useGitStore";
 import { useHealthStore } from "./stores/useHealthStore";
-import { useSurfaceStore } from "./stores/useSurfaceStore";
+import { useHomeViewStore } from "./stores/useHomeViewStore";
+import { useOrchestratorViewStore } from "./stores/useOrchestratorViewStore";
+import { usePulseViewStore } from "./stores/usePulseViewStore";
 import { useTerminalSettingsStore } from "./stores/useTerminalSettingsStore";
 import { useUpdateStore } from "./stores/useUpdateStore";
+import { useWorkflowsViewStore } from "./stores/useWorkflowsViewStore";
 
 /**
  * Landscape graph, loaded on demand: it pulls in React Flow, which would
@@ -92,7 +101,7 @@ const LandscapeView = lazy(() =>
 /**
  * Full-screen workflow editor, loaded on demand for the same reason as
  * LandscapeView above — its own React Flow canvas, opened from the Launch
- * tab via `useSurfaceStore` rather than a prop passed down.
+ * tab via `useWorkflowsViewStore` rather than a prop passed down.
  */
 const WorkflowsView = lazy(() =>
   import("./components/workflows/WorkflowsView").then((m) => ({ default: m.WorkflowsView })),
@@ -157,6 +166,7 @@ function isValidTheme(value: string | null): value is Theme {
 function App() {
   const tabs = useWorkspaceStore((s) => s.tabs);
   const projectColors = useProjectColors();
+  const activeChosenThisSession = useWorkspaceStore((s) => s.activeChosenThisSession);
   const selectTab = useWorkspaceStore((s) => s.selectTab);
   const closeTab = useWorkspaceStore((s) => s.closeTab);
   const reorderTabs = useWorkspaceStore((s) => s.reorderTabs);
@@ -173,7 +183,7 @@ function App() {
   const dismissFDADialogPermanently = useFDAStore((s) => s.dismissPermanently);
   const retryAfterFDAGrant = useFDAStore((s) => s.retryAfterGrant);
   const multiProjectRef = useRef<MultiProjectViewHandle>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   // Active left-sidebar tab — lifted out of Sidebar so Alt+1-3 can drive it.
   const [sidebarTab, setSidebarTab] = useState<SidebarTabId>(loadSavedSidebarTab);
   const [gitPanelOpen, setGitPanelOpen] = useState(false);
@@ -186,15 +196,15 @@ function App() {
     Map<string, { slotCount: number; launchedCount: number }>
   >(new Map());
   const [isStoppingAll, setIsStoppingAll] = useState(false);
+  /* tmux sessions a close could not end, reported by the close wrapper itself
+     rather than by whichever caller remembered to look. The rows they belong
+     to are cleared moments later, so without this the only trace of an agent
+     still running is in a devtools console. */
+  const tmuxOrphans = useTmuxOrphanStore((s) => s.orphans);
+  const clearTmuxOrphans = useTmuxOrphanStore((s) => s.clear);
   const [currentBranch, setCurrentBranch] = useState<string | undefined>(undefined);
-  // What you are looking at. One store, so two full-screen surfaces cannot be
-  // open together and no caller can change the grid underneath one of them.
-  // The old per-surface booleans are derived below purely so the render tree
-  // and the TopBar props stay as they were.
-  const surfaceBase = useSurfaceStore((s) => s.base);
-  const surfaceOverlay = useSurfaceStore((s) => s.overlay);
   // Eagle view: one flat grid of every project's terminals at once
-  const eagleView = useSurfaceStore((s) => s.eagle);
+  const [eagleView, setEagleView] = useState(false);
   // Eagle view Cmd/Ctrl+T: arrow-navigable project picker for the new terminal.
   const [eagleAddPickerOpen, setEagleAddPickerOpen] = useState(false);
   // Cmd/Ctrl+P quick-open palette across sessions and worktrees.
@@ -208,33 +218,28 @@ function App() {
   const [eagleGitIndex, setEagleGitIndex] = useState(0);
   // Landscape view: every project, terminal and subagent on one graph. Rendered
   // over the terminals rather than instead of them, so nothing is torn down.
-  // It is an overlay like the rest now: being outside the union is exactly what
-  // let it sit open underneath the workflow editor.
-  const landscapeView = surfaceOverlay === "landscape";
-  // Full-screen workflow editor (Launch tab → "Open workflow editor").
-  const workflowsViewOpen = surfaceOverlay === "workflows";
+  const [landscapeView, setLandscapeView] = useState(false);
+  // Full-screen workflow editor (Launch tab → "Open workflow editor"):
+  // opened via a store rather than local state, since the trigger lives deep
+  // inside the sidebar rather than a prop App can pass down.
+  const workflowsViewOpen = useWorkflowsViewStore((s) => s.isOpen);
+  const closeWorkflowsView = useWorkflowsViewStore((s) => s.close);
   // Board layer: the shell the app opens on. It sits at z-45, under every
-  // overlay that follows, so an overlay hides it rather than replacing it.
-  const boardViewOpen = surfaceBase === "board";
-  // The remaining full-screen overlays. Exactly one of these can be true,
-  // by construction rather than by every handler remembering to close the
-  // others.
-  const homeViewOpen = surfaceOverlay === "home";
-  const factoryViewOpen = surfaceOverlay === "factory";
-  const orchestratorViewOpen = surfaceOverlay === "orchestrator";
-  const pulseViewOpen = surfaceOverlay === "pulse";
-  // Returning to the base surface. Every overlay's own close button wants the
-  // same thing, so they all get the same function.
-  const closeOverlay = useSurfaceStore((s) => s.closeOverlay);
-  const closeWorkflowsView = closeOverlay;
-  const closeHomeView = closeOverlay;
-  const closeFactoryView = closeOverlay;
-  const closeOrchestratorView = closeOverlay;
-  const closePulseView = closeOverlay;
-  // "Show me the terminals themselves." Every route that selects, adds or
-  // zooms a terminal must call this FIRST: it drops the overlay AND the Board,
-  // which is the step fifteen call sites each forgot a different part of.
-  const showGrid = useSurfaceStore((s) => s.showGrid);
+  // overlay that follows, so it takes no part in their exclusivity dance.
+  const boardViewOpen = useBoardViewStore((s) => s.isOpen);
+  const [boardMode, setBoardMode] = useState<"board" | "ledger">("board");
+  const closeBoardView = useBoardViewStore((s) => s.close);
+  // Home decision queue overlay. The full-screen overlays assume they are
+  // never open together, so opening Home closes the other two and vice versa
+  // (see the toggle handlers below).
+  const homeViewOpen = useHomeViewStore((s) => s.isOpen);
+  const closeHomeView = useHomeViewStore((s) => s.close);
+  const factoryViewOpen = useFactoryViewStore((s) => s.isOpen);
+  const closeFactoryView = useFactoryViewStore((s) => s.close);
+  const orchestratorViewOpen = useOrchestratorViewStore((s) => s.isOpen);
+  const closeOrchestratorView = useOrchestratorViewStore((s) => s.close);
+  const pulseViewOpen = usePulseViewStore((s) => s.isOpen);
+  const closePulseView = usePulseViewStore((s) => s.close);
   // Marks the landscape button while a terminal anywhere is blocked on you.
   const needsInputAnywhere = useSessionStore((s) =>
     s.sessions.some((session) => session.status === "NeedsInput"),
@@ -652,12 +657,11 @@ function App() {
     try {
       const sessionStore = useSessionStore.getState();
       const projectSessions = sessionStore.getSessionsByProject(activeTab.projectPath);
-      const results = await Promise.allSettled(projectSessions.map((s) => killSession(s.id)));
-      for (const result of results) {
-        if (result.status === "rejected") {
-          console.error("Failed to stop session:", result.reason);
-        }
-      }
+      /* allSettled so one session refusing does not strand the others. What
+         could not be stopped is reported by `killSession` itself, into the
+         store the banner below reads, because five of the other six close
+         paths only log. */
+      await Promise.allSettled(projectSessions.map((s) => killSession(s.id)));
       await sessionStore.removeSessionsForProject(activeTab.projectPath);
       setSessionsLaunched(activeTab.id, false);
       setSessionCounts((prev) => {
@@ -673,17 +677,20 @@ function App() {
   // Cmd/Ctrl+T: add a new terminal. In eagle view this opens the project
   // picker modal; otherwise the active project's grid gets a new slot (the
   // grid keeps the zoom-in view and zooms the new slot when one is zoomed).
+  //
+  // The picker also stands in for the first new terminal after a launch. The
+  // active tab is persisted, so at startup it is whatever was active whenever
+  // the app last closed, not a project anyone has looked at today: opening a
+  // terminal straight into it is how you end up typing in a directory you
+  // forgot was open. Asking once per launch is enough, because picking marks
+  // the choice as made and every later Cmd+T goes through without a prompt.
   const handleAddSessionShortcut = useCallback(() => {
-    if (eagleView) {
+    if (eagleView || (!activeChosenThisSession && tabs.length > 0)) {
       setEagleAddPickerOpen(true);
       return;
     }
-    // Show the terminals first. On a cold start the Board covers the idle
-    // landing view (the big "+" that tells a new user what to do), so adding
-    // a session from behind it produced a card nobody could see.
-    useSurfaceStore.getState().showGrid();
     multiProjectRef.current?.addSessionToActiveProject();
-  }, [eagleView]);
+  }, [eagleView, activeChosenThisSession, tabs.length]);
 
   // Leaving eagle view always drops the picker.
   useEffect(() => {
@@ -705,65 +712,37 @@ function App() {
     atMax: (sessionCounts.get(t.id)?.slotCount ?? 0) >= MAX_SESSIONS,
   }));
 
-  /**
-   * The one route to a terminal. Every caller that wants a terminal on screen
-   * goes through here: it shows the grid FIRST (which drops both the overlay
-   * and the Board), then selects, then zooms once the tab switch has committed
-   * to the DOM.
-   *
-   * Fifteen call sites used to inline some subset of this and each forgot a
-   * different part, so the selection landed correctly underneath something the
-   * user was still looking at and the click read as dead.
-   */
-  const navigateToTerminal = useCallback(
-    (tabId: string, sessionId?: number) => {
-      showGrid();
+  const handleAddSessionToProject = useCallback(
+    (tabId: string) => {
+      setEagleView(false);
       selectTab(tabId);
-      if (sessionId === undefined) return;
+      multiProjectRef.current?.addSessionInProject(tabId);
+    },
+    [selectTab],
+  );
+
+  // Sidebar History tab queued a recovery launch: leave eagle view and select
+  // the project so its grid mounts and consumes the pending launch.
+  const handleHistoryLaunch = useCallback(
+    (tabId: string) => {
+      setEagleView(false);
+      selectTab(tabId);
+    },
+    [selectTab],
+  );
+
+  // Sidebar Agents section: zoom into a terminal. In eagle view the eagle zoom
+  // overlay is used (panes stay mounted); otherwise activate the project tab
+  // and zoom its pane once the tab switch has committed to the DOM.
+  const handleAgentNavigate = useCallback(
+    (tabId: string, sessionId: number) => {
+      selectTab(tabId);
       requestAnimationFrame(() => {
         multiProjectRef.current?.zoomSessionInProject(tabId, sessionId);
       });
     },
-    [selectTab, showGrid],
+    [selectTab],
   );
-
-  /**
-   * Jump between terminals WITHOUT rearranging the shell: the footer navigator
-   * and the sidebar Agents list both mean "put me in that terminal", not "take
-   * me to that project". `navigateToSession` keeps the user's eagle view and
-   * their grid-versus-zoom context, which a plain zoom would throw away.
-   */
-  const jumpToTerminal = useCallback((tabId: string, sessionId: number) => {
-    useSurfaceStore.getState().showTerminals();
-    multiProjectRef.current?.navigateToSession(tabId, sessionId);
-  }, []);
-
-  /** The one route to a NEW terminal, for the same reason. */
-  const addTerminalInProject = useCallback(
-    (tabId: string) => {
-      showGrid();
-      selectTab(tabId);
-      multiProjectRef.current?.addSessionInProject(tabId);
-    },
-    [selectTab, showGrid],
-  );
-
-  const handleAddSessionToProject = addTerminalInProject;
-
-  // Sidebar History tab queued a recovery launch: show the project's grid so
-  // it mounts and consumes the pending launch. Used to leave eagle view only,
-  // which launched the recovered session behind whatever was covering it.
-  const handleHistoryLaunch = useCallback(
-    (tabId: string) => {
-      navigateToTerminal(tabId);
-    },
-    [navigateToTerminal],
-  );
-
-  // Sidebar Agents section: jump to a terminal. In eagle view the eagle zoom
-  // overlay is used (panes stay mounted); otherwise the pane is focused or
-  // zoomed to match whatever the user was already looking at.
-  const handleAgentNavigate = jumpToTerminal;
 
   // Sidebar Agents section: kill one terminal. Normally routed through the
   // project's grid for full pane cleanup; if that grid isn't mounted (stale
@@ -781,30 +760,58 @@ function App() {
   // Landscape view: clicking a node leaves the graph for that project (and,
   // when the node is a terminal, zooms it) — the same route the sidebar's
   // Agents section takes.
-  const handleLandscapeNavigate = navigateToTerminal;
+  const handleLandscapeNavigate = useCallback(
+    (tabId: string, sessionId?: number) => {
+      setEagleView(false);
+      selectTab(tabId);
+      if (sessionId === undefined) return;
+      requestAnimationFrame(() => {
+        multiProjectRef.current?.zoomSessionInProject(tabId, sessionId);
+      });
+    },
+    [selectTab],
+  );
 
   // Home view: clicking a band row leaves the queue for that terminal — the
   // same route the landscape takes, plus closing the Home overlay itself.
-  const handleHomeNavigate = navigateToTerminal;
+  const handleHomeNavigate = useCallback(
+    (tabId: string, sessionId?: number) => {
+      closeHomeView();
+      setEagleView(false);
+      selectTab(tabId);
+      if (sessionId === undefined) return;
+      requestAnimationFrame(() => {
+        multiProjectRef.current?.zoomSessionInProject(tabId, sessionId);
+      });
+    },
+    [selectTab, closeHomeView],
+  );
 
   // Board: clicking a card leaves the board for the terminal it describes,
   // the same rAF handshake Home uses. The board layer closes in the same
   // commit as the tab selection, so the zoom lands on a visible grid.
-  const handleBoardNavigate = navigateToTerminal;
+  const handleBoardNavigate = useCallback(
+    (tabId: string, sessionId?: number) => {
+      closeBoardView();
+      setEagleView(false);
+      selectTab(tabId);
+      if (sessionId === undefined) return;
+      requestAnimationFrame(() => {
+        multiProjectRef.current?.zoomSessionInProject(tabId, sessionId);
+      });
+    },
+    [selectTab, closeBoardView],
+  );
 
   // Resuming a handoff from the Board: same flow as Home's, and the Board
   // gets out of the way so the launching terminal is the thing on screen.
   const handleBoardLaunchHandoff = useLaunchHandoff(handleBoardNavigate);
 
   // A gated run is unblocked in the Factory, so the card hands over to it.
-  // The Board steps aside in the same move, so closing the Factory afterwards
-  // returns to the terminals rather than back to the Board: opening the
-  // overlay alone would leave the Board as the base and change where the user
-  // lands on the way out.
   const handleBoardOpenRun = useCallback((runId: string) => {
     void useActStore.getState().openDetail(runId);
-    useSurfaceStore.getState().showGrid();
-    useSurfaceStore.getState().openOverlay("factory");
+    useBoardViewStore.getState().close();
+    useFactoryViewStore.getState().open();
   }, []);
 
   // Adopting an outside session's project from the Board peek: open the tab,
@@ -827,32 +834,57 @@ function App() {
     [handleBoardNavigate],
   );
 
-  // Cmd/Ctrl+E and the TopBar segments both land here. The Board is a layer,
-  // never a replacement: closing it reveals the grid that was mounted all
-  // along, so there is nothing to tear down or rebuild either way.
-  const handleSetBoardView = useCallback((open: boolean) => {
-    // A two-position selector, so each segment names the surface it shows.
-    // Setting the Board flag alone used to open the Board UNDERNEATH whatever
-    // overlay was up, and "Grid" closed a Board nobody could see: both
-    // segments looked dead from Home.
-    if (open) useSurfaceStore.getState().showBoard();
-    else useSurfaceStore.getState().showGrid();
+  const handleWorkbenchNavigate = useCallback((open: boolean) => {
+    setLandscapeView(false);
+    useWorkflowsViewStore.getState().close();
+    useHomeViewStore.getState().close();
+    useFactoryViewStore.getState().close();
+    useOrchestratorViewStore.getState().close();
+    usePulseViewStore.getState().close();
+    if (open) useBoardViewStore.getState().open();
+    else useBoardViewStore.getState().close();
   }, []);
 
-  // Cmd/Ctrl+E. Under an overlay the visible meaning of the keystroke is
-  // "show me the Board" rather than "flip a bit I cannot see", which the store
-  // now owns for every caller.
   const handleToggleBoardView = useCallback(() => {
-    useSurfaceStore.getState().toggleBoard();
-  }, []);
+    /* Cmd+E under a z-50 overlay would toggle the Board invisibly beneath
+       it (review finding 5 on 4f3f27a). The visible meaning of the keystroke
+       is "show me the Board", so leave the overlay and open it.
+
+       That meaning also decides the mode. The Board layer has two faces now,
+       and the rail lights whichever one is on screen; a Cmd+E that reopened
+       the layer on the Ledger would leave the rail saying Ledger while the
+       key the user pressed says Board. So the keystroke closes the layer only
+       when the Board face is already what they are looking at, and in every
+       other case it shows the Board face. Closing leaves the mode alone:
+       nothing is rendered to disagree with, and the next open sets it. */
+    const overlayUp =
+      landscapeView ||
+      useWorkflowsViewStore.getState().isOpen ||
+      useHomeViewStore.getState().isOpen ||
+      useFactoryViewStore.getState().isOpen ||
+      useOrchestratorViewStore.getState().isOpen ||
+      usePulseViewStore.getState().isOpen;
+    if (!overlayUp && useBoardViewStore.getState().isOpen && boardMode === "board") {
+      useBoardViewStore.getState().close();
+      return;
+    }
+    setBoardMode("board");
+    handleWorkbenchNavigate(true);
+  }, [landscapeView, boardMode, handleWorkbenchNavigate]);
 
   // The full-screen overlays are never open together: opening Home or the
-  // Factory closes every other overlay,
-  // Every overlay toggle is now the same one-liner: the store holds a single
-  // overlay slot, so "close the other five" is not something a handler can
-  // forget to do.
+  // Factory closes every other overlay, and opening the older two closes
+  // both of these (effect below).
   const handleToggleHomeView = useCallback(() => {
-    useSurfaceStore.getState().toggleOverlay("home");
+    const willOpen = !useHomeViewStore.getState().isOpen;
+    if (willOpen) {
+      setLandscapeView(false);
+      useWorkflowsViewStore.getState().close();
+      useFactoryViewStore.getState().close();
+      useOrchestratorViewStore.getState().close();
+      usePulseViewStore.getState().close();
+    }
+    useHomeViewStore.getState().toggle();
   }, []);
 
   const quickOpenItems = useQuickOpenItems(quickOpenOpen, quickOpenSessions, tabs);
@@ -860,32 +892,69 @@ function App() {
   const handleQuickOpenPick = useCallback(
     (item: QuickOpenItem) => {
       setQuickOpenOpen(false);
+      // Exactly the route the landscape and Home rows take out of an overlay:
+      // drop the full-screen views, select the project, then zoom on the next
+      // frame — the target project's grid is not mounted until that render, and
+      // navigateToSession would still see the pre-close eagle state this tick.
+      handleWorkbenchNavigate(false);
+      setEagleView(false);
+      selectTab(item.tabId);
+
       // A worktree with no live session has no terminal to zoom; surfacing its
-      // project is the most we can honestly do. Either way this goes through
-      // the one terminal route, which used to close five overlays by hand and
-      // still leave the Board covering every result.
+      // project is the most we can honestly do.
       const { sessionId } = item;
-      navigateToTerminal(item.tabId, sessionId ?? undefined);
+      if (sessionId === null) return;
+      requestAnimationFrame(() => {
+        multiProjectRef.current?.zoomSessionInProject(item.tabId, sessionId);
+      });
     },
-    [navigateToTerminal],
+    [selectTab, handleWorkbenchNavigate],
   );
 
   const handleToggleFactoryView = useCallback(() => {
-    useSurfaceStore.getState().toggleOverlay("factory");
+    const willOpen = !useFactoryViewStore.getState().isOpen;
+    if (willOpen) {
+      setLandscapeView(false);
+      useWorkflowsViewStore.getState().close();
+      useHomeViewStore.getState().close();
+      useOrchestratorViewStore.getState().close();
+      usePulseViewStore.getState().close();
+    }
+    useFactoryViewStore.getState().toggle();
   }, []);
 
   const handleToggleOrchestratorView = useCallback(() => {
-    useSurfaceStore.getState().toggleOverlay("orchestrator");
+    const willOpen = !useOrchestratorViewStore.getState().isOpen;
+    if (willOpen) {
+      setLandscapeView(false);
+      useWorkflowsViewStore.getState().close();
+      useHomeViewStore.getState().close();
+      useFactoryViewStore.getState().close();
+      usePulseViewStore.getState().close();
+    }
+    useOrchestratorViewStore.getState().toggle();
   }, []);
 
   const handleTogglePulseView = useCallback(() => {
-    useSurfaceStore.getState().toggleOverlay("pulse");
+    const willOpen = !usePulseViewStore.getState().isOpen;
+    if (willOpen) {
+      setLandscapeView(false);
+      useWorkflowsViewStore.getState().close();
+      useHomeViewStore.getState().close();
+      useFactoryViewStore.getState().close();
+      useOrchestratorViewStore.getState().close();
+    }
+    usePulseViewStore.getState().toggle();
   }, []);
 
-  // The effect that used to force overlay exclusivity is gone: a single
-  // overlay slot cannot hold two surfaces, so there is no state to reconcile
-  // after the fact. It also never covered Landscape against Workflows, which
-  // is how those two ended up open together.
+  useEffect(() => {
+    if (landscapeView || workflowsViewOpen) {
+      closeHomeView();
+      useFactoryViewStore.getState().close();
+      useOrchestratorViewStore.getState().close();
+      usePulseViewStore.getState().close();
+    }
+  }, [landscapeView, workflowsViewOpen, closeHomeView]);
 
   // Band data (handoffs, PR polls, ACT) refreshes app-wide, and every change
   // mirrors to the Vanguard snapshot file the launchd digest reads.
@@ -911,12 +980,13 @@ function App() {
   }, [handleSelectSidebarTab]);
 
   // TopBar's More menu → Workflows: the full-screen workflow editor is a
-  // standalone store-driven overlay (see useSurfaceStore) — its only
+  // standalone store-driven overlay (see useWorkflowsViewStore) — its only
   // trigger used to be a button inside the now-cut Launch panel, but the
   // overlay itself never depended on that panel being open.
   const handleOpenWorkflows = useCallback(() => {
-    useSurfaceStore.getState().openOverlay("workflows");
-  }, []);
+    handleWorkbenchNavigate(false);
+    useWorkflowsViewStore.getState().open();
+  }, [handleWorkbenchNavigate]);
 
   // Alt+1-3: open the sidebar on tab N; pressing the active tab's shortcut
   // again closes the sidebar (per-tab toggle, no separate pane toggle).
@@ -985,10 +1055,9 @@ function App() {
         );
         if (targetTab && !targetTab.active) selectTab(targetTab.id);
       }
-      // The git panel targets the active tab outside eagle view, so leave
-      // eagle. It renders beside the shell rather than under it, so there is
-      // no reason to dismiss the Board or an overlay the user is reading.
-      if (useSurfaceStore.getState().eagle) useSurfaceStore.getState().showGrid();
+      // The git panel targets the active tab outside eagle view; leave eagle
+      // view so the selected project is actually the one shown.
+      setEagleView(false);
 
       const repoPath = target?.repoPath ?? activeRepo;
       if (repoPath) {
@@ -1008,19 +1077,13 @@ function App() {
     onAddSession: handleAddSessionShortcut,
     // Eagle view: Cmd/Ctrl+T opens the project picker instead of adding
     // directly, so it only needs at least one open project.
-    // A project being open is the only precondition. This used to require a
-    // session to ALREADY be running, so the shortcut the first-run tour
-    // advertises did nothing on a fresh install.
-    canAddSession: tabs.length > 0,
+    canAddSession: eagleView ? tabs.length > 0 : activeTabSessionsLaunched,
     onSidebarTab: handleSidebarTabShortcut,
     onToggleGitPanel: handleToggleGitPanel,
     onToggleUtilityPanel: handleToggleUtilityPanel,
-    onToggleEagleView: useCallback(() => useSurfaceStore.getState().toggleEagle(), []),
+    onToggleEagleView: useCallback(() => setEagleView((v) => !v), []),
     onToggleBoardView: handleToggleBoardView,
-    onToggleLandscapeView: useCallback(
-      () => useSurfaceStore.getState().toggleOverlay("landscape"),
-      [],
-    ),
+    onToggleLandscapeView: useCallback(() => setLandscapeView((v) => !v), []),
     onToggleHomeView: handleToggleHomeView,
     onToggleFactoryView: handleToggleFactoryView,
     onToggleOrchestratorView: handleToggleOrchestratorView,
@@ -1052,263 +1115,241 @@ function App() {
 
   return (
     <div
-      className="flex h-screen w-screen flex-col bg-maestro-bg"
+      className="vanguard-workspace flex h-dvh w-full flex-col bg-maestro-bg"
       style={{ ["--mac-title-bar-inset" as string]: macTitleBarInset }}
     >
-      {/* Project tabs — full width at top (with window controls) */}
-      <ProjectTabs
-        tabs={tabs.map((t) => ({
-          id: t.id,
-          name: t.name,
-          active: t.active,
-          color: projectColors.get(t.name) ?? projectColorFor(t.name),
-        }))}
-        onSelectTab={selectTab}
-        onCloseTab={handleCloseTab}
-        onNewTab={handleOpenProject}
-        onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
-        sidebarOpen={sidebarOpen}
-        onReorderTab={reorderTabs}
-        onMoveTab={moveTab}
-      />
+      <WorkbenchTitleBar projectName={activeTab?.name} />
 
-      {/* Main area: rail + sidebar + content */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Quiet Deck rail — every surface, 44px, always there. The sidebar
-            beside it is a detail panel that comes and goes; navigation does
-            not, which is why it left the top bar. */}
-        <QuietRail
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
+        <TopBar
+          eagleView={eagleView}
+          onToggleEagleView={() => {
+            handleWorkbenchNavigate(false);
+            setEagleView((v) => !v);
+          }}
+          landscapeView={landscapeView}
+          onToggleLandscapeView={() => {
+            handleWorkbenchNavigate(false);
+            setLandscapeView(true);
+          }}
+          landscapeAttention={needsInputAnywhere}
           boardViewOpen={boardViewOpen}
-          onSetBoardView={handleSetBoardView}
+          onSetBoardView={(open) => {
+            setBoardMode("board");
+            handleWorkbenchNavigate(open);
+          }}
+          ledgerViewOpen={boardMode === "ledger"}
+          onOpenLedger={() => {
+            setBoardMode("ledger");
+            handleWorkbenchNavigate(true);
+          }}
+          onAddSession={() => {
+            handleWorkbenchNavigate(false);
+            handleAddSessionShortcut();
+          }}
+          canAddSession={
+            eagleView
+              ? eagleProjects.some((project) => !project.atMax)
+              : !!activeTab && activeTabSlotCount < MAX_SESSIONS
+          }
           homeViewOpen={homeViewOpen}
           onToggleHomeView={handleToggleHomeView}
-          homeAttention={needsInputAnywhere}
           factoryViewOpen={factoryViewOpen}
           onToggleFactoryView={handleToggleFactoryView}
           orchestratorViewOpen={orchestratorViewOpen}
           onToggleOrchestratorView={handleToggleOrchestratorView}
           pulseViewOpen={pulseViewOpen}
           onTogglePulseView={handleTogglePulseView}
-          eagleView={eagleView}
-          onToggleEagleView={() => useSurfaceStore.getState().toggleEagle()}
-          processesPanelOpen={utilityPanel === "processes"}
-          onToggleProcessesPanel={() => handleToggleUtilityPanel("processes")}
-          aiPanelOpen={utilityPanel === "ai"}
-          onToggleAiPanel={() => handleToggleUtilityPanel("ai")}
-          gitPanelOpen={gitPanelOpen}
-          onToggleGitPanel={() => setGitPanelOpen((prev) => !prev)}
-          landscapeView={landscapeView}
-          onToggleLandscapeView={() => useSurfaceStore.getState().toggleOverlay("landscape")}
-          landscapeAttention={needsInputAnywhere}
-          onToggleMemoryPanel={() => handleToggleUtilityPanel("memory")}
-          onOpenWorkflows={handleOpenWorkflows}
+          homeAttention={needsInputAnywhere}
           onOpenExtensions={handleOpenExtensions}
-        />
-        {/* Sidebar — below project tabs */}
-        <Sidebar
-          collapsed={!sidebarOpen}
-          onCollapse={() => setSidebarOpen(false)}
-          activeTab={sidebarTab}
-          onSelectTab={handleSelectSidebarTab}
-          theme={theme}
-          onToggleTheme={toggleTheme}
-          launchedCount={activeTabLaunchedCount}
-          isStoppingAll={isStoppingAll}
-          onStopAll={handleStopAll}
-          onAgentNavigate={handleAgentNavigate}
-          onAgentKill={handleAgentKill}
-          onHistoryLaunch={handleHistoryLaunch}
-        />
-
-        {/* Right column: top bar + content + bottom bar */}
-        <div className="flex flex-1 flex-col overflow-hidden">
-          {/* Top bar row - includes git panel header when open */}
-          <div className="flex h-9 shrink-0 bg-maestro-bg">
-            {/* TopBar takes flex-1 to fill available space */}
-            <TopBar
-              sidebarOpen={sidebarOpen}
-              onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
-              hideWindowControls
-              slotCount={activeTabSlotCount}
-              maxSessions={MAX_SESSIONS}
-              onAddSession={handleAddSessionShortcut}
-              hasProject={tabs.length > 0}
-              eagleView={eagleView}
-              eagleProjects={eagleProjects}
-              onAddSessionToProject={handleAddSessionToProject}
-              landscapeView={landscapeView}
-              boardViewOpen={boardViewOpen}
-              homeViewOpen={homeViewOpen}
-              factoryViewOpen={factoryViewOpen}
-              orchestratorViewOpen={orchestratorViewOpen}
-              pulseViewOpen={pulseViewOpen}
-              onWatchdogNavigate={handleWatchdogNavigate}
+          onOpenWorkflows={handleOpenWorkflows}
+          workflowsViewOpen={workflowsViewOpen}
+          projectNavigation={
+            <ProjectTabs
+              tabs={tabs.map((t) => ({ id: t.id, name: t.name, active: t.active }))}
+              onSelectTab={selectTab}
+              onCloseTab={handleCloseTab}
+              onNewTab={handleOpenProject}
+              onReorderTab={reorderTabs}
+              onMoveTab={moveTab}
             />
+          }
+        />
+        <ToolsEdgeToggle open={sidebarOpen} onOpen={() => setSidebarOpen(true)} />
+        <div className={`workbench-tools-surface ${sidebarOpen ? "" : "hidden"}`}>
+          <button
+            type="button"
+            aria-label="Close tools"
+            onClick={() => setSidebarOpen(false)}
+            className="absolute right-2 top-10 z-10 rounded bg-maestro-surface p-1 text-maestro-muted hover:text-maestro-text"
+          >
+            <X size={14} />
+          </button>
+          <Sidebar
+            collapsed={!sidebarOpen}
+            onCollapse={() => setSidebarOpen(false)}
+            activeTab={sidebarTab}
+            onSelectTab={handleSelectSidebarTab}
+            theme={theme}
+            onToggleTheme={toggleTheme}
+            launchedCount={activeTabLaunchedCount}
+            isStoppingAll={isStoppingAll}
+            onStopAll={handleStopAll}
+            onAgentNavigate={handleAgentNavigate}
+            onAgentKill={handleAgentKill}
+            onHistoryLaunch={handleHistoryLaunch}
+          />
+        </div>
 
-            {/* Git panel header - inline at same level as TopBar.
-                In eagle view it describes the carousel-selected project. */}
-            {gitPanelOpen && (
-              <div
-                className="flex h-9 shrink-0 items-center border-l border-maestro-border px-3 gap-2 bg-maestro-bg"
-                style={{ width: rightPanelWidth }}
-              >
-                <GitFork size={14} className="text-maestro-muted" />
-                {gitTargetTab?.workspaceType === "multi-repo" && gitTargetTab.selectedRepoPath && (
-                  <span className="text-xs font-medium text-maestro-accent">
-                    {
-                      gitTargetTab.repositories.find(
-                        (r) => r.path === gitTargetTab.selectedRepoPath,
-                      )?.name
-                    }
-                  </span>
-                )}
-                <span className="text-sm font-medium text-maestro-text">
-                  {GIT_PANEL_TITLES[gitPanelTab]}
-                </span>
-                {gitPanelTab === "commits" && commitCount > 0 && (
-                  <span className="rounded-full bg-maestro-accent/15 px-1.5 py-px text-[10px] font-medium text-maestro-accent">
-                    {commitCount}
-                  </span>
-                )}
-                <div className="flex-1" />
-                {gitRepoPath && (
-                  <button
-                    type="button"
-                    onClick={handleRefreshGit}
-                    disabled={isRefreshingGit}
-                    className="rounded p-1 text-maestro-muted transition-colors hover:bg-maestro-card hover:text-maestro-text disabled:opacity-50"
-                    aria-label="Refresh commits"
-                  >
-                    <RefreshCw size={14} className={isRefreshingGit ? "animate-spin" : ""} />
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setGitPanelOpen(false)}
-                  className="rounded p-1 text-maestro-muted transition-colors hover:bg-maestro-card hover:text-maestro-text"
-                  aria-label="Close git panel"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            )}
-          </div>
-
+        {/* Workspace content and full-height utility panels */}
+        <div className="flex flex-1 flex-col overflow-hidden">
           {/* Content area (main + optional git panel) */}
-          <div className="flex flex-1 overflow-hidden">
+          <div className="relative isolate z-0 flex flex-1 overflow-hidden">
             {/* Main content - MultiProjectView keeps all projects alive */}
-            <main className="relative flex-1 overflow-hidden bg-maestro-bg">
-              <MultiProjectView
-                ref={multiProjectRef}
-                onSessionCountChange={handleSessionCountChange}
-                eagleView={eagleView}
-              />
+            <div className="flex min-w-0 flex-1 flex-col">
+              <main className="relative min-h-0 flex-1 overflow-hidden bg-maestro-bg">
+                <MultiProjectView
+                  ref={multiProjectRef}
+                  onSessionCountChange={handleSessionCountChange}
+                  eagleView={eagleView}
+                />
 
-              {/* The Board, at z-45: above the zoomed grid pane (z-40) and
+                {/* The Board, at z-45: above the zoomed grid pane (z-40) and
                   below every overlay after it (z-50), which is why the Board
                   needs no entry in the overlay-exclusivity rules. Open by
                   default (BOARD_DEFAULT_OPEN), and a layer like the rest, so
                   the terminals underneath keep running while it is up. */}
-              {boardViewOpen && (
-                <BoardView
-                  onNavigateSession={handleBoardNavigate}
-                  onOpenRun={handleBoardOpenRun}
-                  onLaunchHandoff={handleBoardLaunchHandoff}
-                  onOpenPr={(url) =>
-                    void openUrl(url).catch((err) => console.error("Failed to open PR:", err))
-                  }
-                  onShowGrid={showGrid}
-                  onOpenProject={handleBoardOpenProject}
-                  // Any overlay at all, Pulse included: it used to be left out,
-                  // so j/k still moved a hidden Board selection and Enter could
-                  // launch something off screen.
-                  overlayOpen={surfaceOverlay !== null}
-                />
-              )}
+                {boardViewOpen && (
+                  <BoardView
+                    onNavigateSession={handleBoardNavigate}
+                    onOpenRun={handleBoardOpenRun}
+                    onLaunchHandoff={handleBoardLaunchHandoff}
+                    onOpenPr={(url) =>
+                      void openUrl(url).catch((err) => console.error("Failed to open PR:", err))
+                    }
+                    onShowGrid={closeBoardView}
+                    onOpenProject={handleBoardOpenProject}
+                    mode={boardMode}
+                    overlayOpen={
+                      landscapeView ||
+                      workflowsViewOpen ||
+                      homeViewOpen ||
+                      factoryViewOpen ||
+                      orchestratorViewOpen ||
+                      pulseViewOpen
+                    }
+                  />
+                )}
 
-              {/* Landscape graph — an overlay, never a replacement: unmounting
+                {/* Landscape graph — an overlay, never a replacement: unmounting
                   MultiProjectView would tear down every live terminal. */}
-              {landscapeView && (
-                <Suspense
-                  fallback={
-                    /* z-50 like the landscape itself: the zoomed eagle pane is
+                {landscapeView && (
+                  <Suspense
+                    fallback={
+                      /* z-50 like the landscape itself: the zoomed eagle pane is
                        z-40, and the fallback must cover it too. */
-                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-maestro-bg text-xs text-maestro-muted">
-                      Loading…
-                    </div>
-                  }
-                >
-                  <LandscapeView onNavigate={handleLandscapeNavigate} onClose={closeOverlay} />
-                </Suspense>
-              )}
+                      <div className="absolute inset-0 z-50 flex items-center justify-center bg-maestro-bg text-xs text-maestro-muted">
+                        Loading…
+                      </div>
+                    }
+                  >
+                    <LandscapeView
+                      onNavigate={handleLandscapeNavigate}
+                      onClose={() => setLandscapeView(false)}
+                    />
+                  </Suspense>
+                )}
 
-              {/* Workflow editor — an overlay, same shell as the landscape
+                {/* Workflow editor — an overlay, same shell as the landscape
                   graph above (both z-50; not expected to be open together). */}
-              {workflowsViewOpen && (
-                <Suspense
-                  fallback={
-                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-maestro-bg text-xs text-maestro-muted">
-                      Loading…
-                    </div>
-                  }
-                >
-                  <WorkflowsView onClose={closeWorkflowsView} />
-                </Suspense>
-              )}
+                {workflowsViewOpen && (
+                  <Suspense
+                    fallback={
+                      <div className="absolute inset-0 z-50 flex items-center justify-center bg-maestro-bg text-xs text-maestro-muted">
+                        Loading…
+                      </div>
+                    }
+                  >
+                    <WorkflowsView onClose={closeWorkflowsView} />
+                  </Suspense>
+                )}
 
-              {/* Home decision queue — same overlay shell as the two above;
+                {/* Home decision queue — same overlay shell as the two above;
                   open by default so the day starts on what is blocked on you. */}
-              {homeViewOpen && (
-                <Suspense
-                  fallback={
-                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-maestro-bg text-xs text-maestro-muted">
-                      Loading…
-                    </div>
-                  }
-                >
-                  <HomeView onNavigate={handleHomeNavigate} onClose={closeHomeView} />
-                </Suspense>
-              )}
+                {homeViewOpen && (
+                  <Suspense
+                    fallback={
+                      <div className="absolute inset-0 z-50 flex items-center justify-center bg-maestro-bg text-xs text-maestro-muted">
+                        Loading…
+                      </div>
+                    }
+                  >
+                    <HomeView onNavigate={handleHomeNavigate} onClose={closeHomeView} />
+                  </Suspense>
+                )}
 
-              {/* Factory — the ACT lane, same overlay shell. */}
-              {factoryViewOpen && (
-                <Suspense
-                  fallback={
-                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-maestro-bg text-xs text-maestro-muted">
-                      Loading…
-                    </div>
-                  }
-                >
-                  <FactoryView onClose={closeFactoryView} />
-                </Suspense>
-              )}
+                {/* Factory — the ACT lane, same overlay shell. */}
+                {factoryViewOpen && (
+                  <Suspense
+                    fallback={
+                      <div className="absolute inset-0 z-50 flex items-center justify-center bg-maestro-bg text-xs text-maestro-muted">
+                        Loading…
+                      </div>
+                    }
+                  >
+                    <FactoryView onClose={closeFactoryView} />
+                  </Suspense>
+                )}
 
-              {/* Orchestrator — the goal box + proposal queue, same overlay shell. */}
-              {orchestratorViewOpen && (
-                <Suspense
-                  fallback={
-                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-maestro-bg text-xs text-maestro-muted">
-                      Loading…
-                    </div>
-                  }
-                >
-                  <OrchestratorView onClose={closeOrchestratorView} />
-                </Suspense>
-              )}
+                {/* Orchestrator — the goal box + proposal queue, same overlay shell. */}
+                {orchestratorViewOpen && (
+                  <Suspense
+                    fallback={
+                      <div className="absolute inset-0 z-50 flex items-center justify-center bg-maestro-bg text-xs text-maestro-muted">
+                        Loading…
+                      </div>
+                    }
+                  >
+                    <OrchestratorView onClose={closeOrchestratorView} />
+                  </Suspense>
+                )}
 
-              {/* Pulse — how the day is going, same overlay shell. */}
-              {pulseViewOpen && (
-                <Suspense
-                  fallback={
-                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-maestro-bg text-xs text-maestro-muted">
-                      Loading…
-                    </div>
-                  }
-                >
-                  <PulseView onClose={closePulseView} />
-                </Suspense>
-              )}
-            </main>
+                {/* Pulse — how the day is going, same overlay shell. */}
+                {pulseViewOpen && (
+                  <Suspense
+                    fallback={
+                      <div className="absolute inset-0 z-50 flex items-center justify-center bg-maestro-bg text-xs text-maestro-muted">
+                        Loading…
+                      </div>
+                    }
+                  >
+                    <PulseView onClose={closePulseView} />
+                  </Suspense>
+                )}
+              </main>
+              {/* Bottom action bar */}
+              <div className="bg-maestro-bg">
+                <BottomBar
+                  onSearch={() => setQuickOpenOpen(true)}
+                  actions={<GitHubWatchdogBadge onNavigate={handleWatchdogNavigate} />}
+                  slotCount={activeTabSlotCount}
+                  launchedCount={activeTabLaunchedCount}
+                  onLaunchAll={() => {
+                    if (!activeTabSessionsLaunched && activeTab) {
+                      // First enter grid view, then launch
+                      handleEnterGridView();
+                    }
+                    // Launching into a grid hidden behind the Board would look
+                    // like the button did nothing, so the Board steps aside.
+                    closeBoardView();
+                    multiProjectRef.current?.launchAllInActiveProject();
+                  }}
+                  onNavigateToSession={(tabId, sessionId) => {
+                    multiProjectRef.current?.navigateToSession(tabId, sessionId);
+                  }}
+                />
+              </div>
+            </div>
 
             {/* Memory / Processes utility panel (optional right side) */}
             {utilityPanel && (
@@ -1326,44 +1367,86 @@ function App() {
                 eagle view it becomes a carousel: one project card at a time,
                 switched via the EagleProjectSwitcher strip — the git stores
                 are singletons, so exactly one panel is ever mounted. */}
-            <GitGraphPanel
-              open={gitPanelOpen}
-              onClose={() => setGitPanelOpen(false)}
-              repoPath={gitRepoPath ?? null}
-              currentBranch={currentBranch ?? null}
-              repositories={gitTargetTab?.repositories ?? []}
-              workspaceType={gitTargetTab?.workspaceType ?? "single-repo"}
-              onRepoChange={(path) => gitTargetTab && setSelectedRepo(gitTargetTab.id, path)}
-              activeTab={gitPanelTab}
-              onActiveTabChange={setGitPanelTab}
-              width={rightPanelWidth}
-              onResize={handleRightPanelResize}
-              eagleProjects={eagleView ? eagleProjects : undefined}
-              eagleIndex={clampedEagleGitIndex}
-              onEaglePrev={handleEagleGitPrev}
-              onEagleNext={handleEagleGitNext}
-            />
-          </div>
+            <div className="flex min-h-0 shrink-0 flex-col">
+              {gitPanelOpen && (
+                <div className="relative z-10 flex shrink-0 justify-end border-b border-maestro-border bg-maestro-surface">
+                  {/* Git panel header - inline at same level as TopBar.
+                In eagle view it describes the carousel-selected project. */}
+                  {gitPanelOpen && (
+                    <div
+                      className="flex h-10 shrink-0 items-center border-l border-maestro-border px-3 gap-2 bg-maestro-bg"
+                      style={{ width: rightPanelWidth }}
+                    >
+                      <GitFork size={14} className="text-maestro-muted" />
+                      {gitTargetTab?.workspaceType === "multi-repo" &&
+                        gitTargetTab.selectedRepoPath && (
+                          <span className="text-xs font-medium text-maestro-accent">
+                            {
+                              gitTargetTab.repositories.find(
+                                (r) => r.path === gitTargetTab.selectedRepoPath,
+                              )?.name
+                            }
+                          </span>
+                        )}
+                      <span className="text-sm font-medium text-maestro-text">
+                        {GIT_PANEL_TITLES[gitPanelTab]}
+                      </span>
+                      {gitPanelTab === "commits" && commitCount > 0 && (
+                        <span className="rounded-full bg-maestro-accent/15 px-1.5 py-px text-[10px] font-medium text-maestro-accent">
+                          {commitCount}
+                        </span>
+                      )}
+                      <div className="flex-1" />
+                      {gitRepoPath && (
+                        <button
+                          type="button"
+                          onClick={handleRefreshGit}
+                          disabled={isRefreshingGit}
+                          className="rounded p-1 text-maestro-muted transition-colors hover:bg-maestro-card hover:text-maestro-text disabled:opacity-50"
+                          aria-label="Refresh commits"
+                        >
+                          <RefreshCw size={14} className={isRefreshingGit ? "animate-spin" : ""} />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setGitPanelOpen(false)}
+                        className="rounded p-1 text-maestro-muted transition-colors hover:bg-maestro-card hover:text-maestro-text"
+                        aria-label="Close git panel"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
 
-          {/* Bottom action bar */}
-          <div className="bg-maestro-bg">
-            <BottomBar
-              slotCount={activeTabSlotCount}
-              launchedCount={activeTabLaunchedCount}
-              onLaunchAll={() => {
-                if (!activeTabSessionsLaunched && activeTab) {
-                  // First enter grid view, then launch
-                  handleEnterGridView();
-                }
-                // Launching into a grid hidden behind the Board (or any
-                // overlay) would look like the button did nothing.
-                showGrid();
-                multiProjectRef.current?.launchAllInActiveProject();
-              }}
-              onNavigateToSession={jumpToTerminal}
-            />
+              <GitGraphPanel
+                open={gitPanelOpen}
+                onClose={() => setGitPanelOpen(false)}
+                repoPath={gitRepoPath ?? null}
+                currentBranch={currentBranch ?? null}
+                repositories={gitTargetTab?.repositories ?? []}
+                workspaceType={gitTargetTab?.workspaceType ?? "single-repo"}
+                onRepoChange={(path) => gitTargetTab && setSelectedRepo(gitTargetTab.id, path)}
+                activeTab={gitPanelTab}
+                onActiveTabChange={setGitPanelTab}
+                width={rightPanelWidth}
+                onResize={handleRightPanelResize}
+                eagleProjects={eagleView ? eagleProjects : undefined}
+                eagleIndex={clampedEagleGitIndex}
+                onEaglePrev={handleEagleGitPrev}
+                onEagleNext={handleEagleGitNext}
+              />
+            </div>
           </div>
         </div>
+        <WorkbenchDock
+          activePanel={utilityPanel}
+          onSelect={handleToggleUtilityPanel}
+          gitOpen={gitPanelOpen}
+          onToggleGit={handleToggleGitPanel}
+        />
       </div>
 
       {/* Cmd/Ctrl+P: fuzzy jump to any session or worktree */}
@@ -1398,6 +1481,27 @@ function App() {
       )}
 
       <UpdateNotification />
+      {tmuxOrphans.length > 0 && (
+        <div className="fixed bottom-4 right-4 z-50 max-w-md rounded-md border border-maestro-red/50 bg-maestro-surface px-3 py-2 shadow-lg">
+          <p className="text-sm font-semibold text-maestro-red">
+            {tmuxOrphans.length === 1
+              ? "One session did not stop"
+              : `${tmuxOrphans.length} sessions did not stop`}
+          </p>
+          {tmuxOrphans.map((failure) => (
+            <p key={failure} className="mt-1 text-xs text-maestro-muted">
+              {failure}
+            </p>
+          ))}
+          <button
+            type="button"
+            onClick={clearTmuxOrphans}
+            className="mt-2 rounded bg-maestro-border px-2 py-1 text-xs text-maestro-text hover:bg-maestro-muted/20"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       <NotificationToasts />
 
       {/* First-run tour — at the root, not inside <main>, so its backdrop

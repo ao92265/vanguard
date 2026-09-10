@@ -1,11 +1,8 @@
 import { ask } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
-  CheckCircle2,
-  CircleDot,
   Clock,
-  GitMerge,
-  GitPullRequest,
+  ExternalLink,
   HelpCircle,
   Inbox,
   Pencil,
@@ -15,12 +12,12 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { ClosedBatchShelf } from "@/components/home/ClosedBatchShelf";
 import { ReplyDraftDialog } from "@/components/home/ReplyDraftDialog";
 import { SnoozeButton } from "@/components/home/SnoozeButton";
-import { badgeBaseClass, SESSION_STATUS_BADGES } from "@/components/session/agentPresentation";
+import { SESSION_STATUS_BADGES } from "@/components/session/agentPresentation";
 import { useLaunchHandoff } from "@/hooks/useLaunchHandoff";
 import { useRestoreClosedBatch } from "@/hooks/useRestoreClosedBatch";
 import { assembleBands, type BandItem, type BandTab, type HandoffInfo } from "@/lib/bands";
@@ -33,11 +30,12 @@ import {
 import { useActStore } from "@/stores/useActStore";
 import { useBandStore } from "@/stores/useBandStore";
 import { useClosedSessionsStore } from "@/stores/useClosedSessionsStore";
+import { useFactoryViewStore } from "@/stores/useFactoryViewStore";
+import { useHomeViewStore } from "@/stores/useHomeViewStore";
 import { useReplyDraftStore } from "@/stores/useReplyDraftStore";
 import type { BackendSessionStatus, SessionConfig } from "@/stores/useSessionStore";
 import { useSessionStore } from "@/stores/useSessionStore";
 import { useSnoozeStore } from "@/stores/useSnoozeStore";
-import { useSurfaceStore } from "@/stores/useSurfaceStore";
 import { useTourStore } from "@/stores/useTourStore";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
 
@@ -69,45 +67,219 @@ function relAgo(iso: string): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-const rowClass =
-  "flex w-full items-center gap-2 rounded border border-maestro-border bg-maestro-card px-3 py-2 text-left transition-colors hover:border-maestro-muted/50";
-
-function StatusBadge({ status }: { status: BackendSessionStatus }) {
-  const badge = SESSION_STATUS_BADGES[status];
-  return <span className={`${badgeBaseClass} ${badge.cls}`}>{badge.label}</span>;
+function parseMs(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const at = Date.parse(iso);
+  return Number.isFinite(at) ? at : null;
 }
 
-interface SessionRowProps {
-  item: BandItem;
+/** The queue's time column: one glance, no units to read. Empty when unknown. */
+function shortAgo(at: number | null): string {
+  if (at === null) return "";
+  const ms = Date.now() - at;
+  if (!Number.isFinite(ms) || ms < 0) return "";
+  const mins = Math.floor(ms / 60000);
+  if (mins < 1) return "now";
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 48) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
+
+const queueBadgeClass =
+  "shrink-0 whitespace-nowrap rounded px-[7px] py-0.5 font-mono text-[10px] font-semibold tracking-[0.05em]";
+const actionClass =
+  "flex shrink-0 items-center gap-2 rounded-lg border border-maestro-border px-3.5 py-2 text-[12.5px] font-medium text-maestro-text transition-colors hover:border-maestro-muted/60 disabled:cursor-default disabled:opacity-50";
+const primaryActionClass =
+  "flex shrink-0 items-center gap-2 rounded-lg bg-maestro-accent px-3.5 py-2 text-[12.5px] font-medium text-maestro-on-accent transition-opacity hover:opacity-90 disabled:opacity-40";
+const factLabelClass =
+  "mb-1 font-mono text-[10px] font-semibold uppercase tracking-[0.07em] text-maestro-muted";
+const dividerLabelClass =
+  "font-mono text-[10.5px] font-semibold uppercase tracking-[0.08em] text-maestro-muted";
+
+function itemSummary(item: BandItem): { title: string; context: string; detail: string } {
+  switch (item.kind) {
+    case "session":
+      return {
+        title: item.session.name || item.projectName,
+        context: item.projectName,
+        detail:
+          item.session.needsInputPrompt ||
+          item.session.statusMessage ||
+          SESSION_STATUS_BADGES[item.session.status].label,
+      };
+    case "handoff":
+      return {
+        title: item.handoff.repo,
+        context: item.handoff.repo,
+        detail: item.handoff.lastAction,
+      };
+    case "pr":
+      return {
+        title: `#${item.pr.number} ${item.pr.title}`,
+        context: item.projectName,
+        detail: item.pr.mergedAt ? "Merged pull request" : "Changes requested",
+      };
+    case "run":
+      return {
+        title: item.run.title,
+        context: "Factory",
+        detail: item.run.stage || item.run.status,
+      };
+  }
+}
+
+/** The row badge: what kind of decision this is, in the queue's own words. */
+function queueBadge(item: BandItem): { label: string; cls: string } {
+  switch (item.kind) {
+    case "session":
+      return SESSION_STATUS_BADGES[item.session.status];
+    /* Both kinds of handoff share the band (bands.ts admits one on asks OR
+       waiting), so the badge is the only thing that separates a snapshot that
+       asked you a question from one that just has notes on disk. */
+    case "handoff":
+      return item.handoff.waiting
+        ? { label: "ASKED YOU", cls: "bg-maestro-accent/15 text-maestro-accent" }
+        : { label: "HANDOFF", cls: "bg-maestro-yellow/15 text-maestro-yellow" };
+    case "pr":
+      return item.pr.mergedAt
+        ? { label: "MERGED", cls: "bg-maestro-purple/15 text-maestro-purple" }
+        : { label: "CHANGES REQ", cls: "bg-maestro-accent/15 text-maestro-accent" };
+    case "run":
+      return { label: "FACTORY GATE", cls: "bg-maestro-accent/15 text-maestro-accent" };
+  }
+}
+
+/** The mono line beside the project name: where this row actually lives. */
+function itemSubtitle(item: BandItem): string {
+  switch (item.kind) {
+    case "session":
+      return [item.session.branch, `session #${item.session.id}`].filter(Boolean).join(" · ");
+    case "handoff":
+      return item.handoff.branch ?? "";
+    case "pr":
+      return item.pr.mergedAt ? "merged pull request" : "changes requested";
+    case "run":
+      return item.run.stage ?? item.run.status;
+  }
+}
+
+/**
+ * Everything the row is asking you, newest last.
+ *
+ * A handoff can carry several questions and the card shows all of them: one
+ * of them is why the row is in this band at all, and picking one would hide a
+ * question nobody else is going to ask again. Its last action is a fact, not
+ * the question, so it lives in the strip below rather than in the headline.
+ */
+function itemAskLines(item: BandItem): string[] {
+  switch (item.kind) {
+    case "session":
+      return [itemSummary(item).detail].filter(Boolean);
+    case "handoff": {
+      const asks = item.handoff.asks.filter(Boolean);
+      return asks.length > 0 ? asks : [item.handoff.lastAction].filter(Boolean);
+    }
+    case "pr":
+      return [`#${item.pr.number} ${item.pr.title}`];
+    case "run":
+      return [item.run.title];
+  }
+}
+
+/** When the row last moved, in epoch ms. Null when nothing records it. */
+function itemTimestamp(item: BandItem): number | null {
+  switch (item.kind) {
+    case "session":
+      return item.session.lastMcpUpdateTime ?? null;
+    case "handoff":
+      return parseMs(item.handoff.lastActive);
+    case "pr":
+      return parseMs(item.pr.mergedAt);
+    case "run":
+      return parseMs(item.run.updatedAt);
+  }
+}
+
+function itemTime(item: BandItem): string {
+  return shortAgo(itemTimestamp(item));
+}
+
+/**
+ * The strip along the bottom of the focus card: only facts the row actually
+ * carries. A missing worktree or a session with no recorded last action drops
+ * its column rather than filling it with a plausible-looking path.
+ */
+function focusFacts(item: BandItem): { label: string; value: string }[] {
+  const facts: { label: string; value: string }[] = [];
+  switch (item.kind) {
+    case "session": {
+      const where = item.session.worktree_path ?? item.session.working_directory ?? null;
+      if (where) facts.push({ label: "Worktree", value: where });
+      facts.push({ label: "Project", value: item.session.project_path });
+      if (item.session.statusMessage) {
+        facts.push({ label: "Last action", value: item.session.statusMessage });
+      }
+      return facts;
+    }
+    case "handoff":
+      facts.push({ label: "Worktree", value: item.handoff.path });
+      if (item.handoff.lastAction) {
+        facts.push({ label: "Last action", value: item.handoff.lastAction });
+      }
+      if (item.handoff.uncommitted > 0) {
+        facts.push({ label: "Uncommitted", value: `${item.handoff.uncommitted} files` });
+      } else if (item.handoff.lastCommit) {
+        facts.push({ label: "Last commit", value: item.handoff.lastCommit.msg });
+      }
+      if (facts.length < 3) {
+        facts.push({ label: "Last active", value: relAgo(item.handoff.lastActive) });
+      }
+      return facts.slice(0, 3);
+    case "pr":
+      facts.push({ label: "Repository", value: item.repoPath });
+      facts.push({ label: "Pull request", value: `#${item.pr.number}` });
+      if (item.pr.mergedAt) facts.push({ label: "Merged", value: relAgo(item.pr.mergedAt) });
+      return facts;
+    case "run": {
+      facts.push({ label: "Run", value: item.run.id });
+      facts.push({ label: "Status", value: item.run.status });
+      if (item.run.updatedAt) {
+        facts.push({ label: "Last update", value: relAgo(item.run.updatedAt) });
+      }
+      return facts;
+    }
+  }
+}
+
+/**
+ * Keystrokes belong to whatever is being typed into. The queue's j/k stay out
+ * of form fields, rich-text surfaces and any terminal on screen behind the
+ * overlay. A terminal swallows every key it is given, and it must keep them.
+ */
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  return target.closest("input, textarea, select, .xterm, .terminal-cell") !== null;
+}
+
+/** Actions for a session row: everything Home can do without leaving Home. */
+function SessionActions({
+  session,
+  tabId,
+  onNavigate,
+  onDraftReply,
+  snoozeKey,
+}: {
+  session: SessionConfig;
+  tabId: string | null;
   onNavigate: HomeViewProps["onNavigate"];
   /** Blocked-band extras; the other two bands pass nothing and render as before. */
   onDraftReply?: (session: SessionConfig) => void;
   snoozeKey?: SnoozeKey;
-}
-
-/**
- * Body of a session row, past the kind guard, so the row's own hooks (the
- * rename field) sit at the top of a component that always renders.
- */
-function SessionRowBody({
-  session,
-  tabId,
-  projectName,
-  onNavigate,
-  onDraftReply,
-  snoozeKey,
-}: Omit<SessionRowProps, "item"> & {
-  session: SessionConfig;
-  tabId: string | null;
-  projectName: string;
 }) {
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState("");
-
-  const detail =
-    session.status === "NeedsInput"
-      ? (session.needsInputPrompt ?? "Waiting for your input")
-      : (session.statusMessage ?? "");
 
   /* The same store action the terminal header's click-to-rename uses — one
      rename path, two surfaces. Blank clears the custom name (the backend
@@ -119,26 +291,15 @@ function SessionRowBody({
   };
 
   return (
-    <div className={rowClass}>
+    <>
       <button
         type="button"
-        className={`flex min-w-0 flex-1 items-center gap-2 text-left ${
-          tabId ? "" : "cursor-default"
-        }`}
+        className={primaryActionClass}
+        disabled={!tabId}
         onClick={() => tabId && onNavigate(tabId, session.id)}
         title={tabId ? "Jump to this terminal" : "Project not open in a tab"}
       >
-        <StatusBadge status={session.status} />
-        <span className="shrink-0 text-[12px] font-medium text-maestro-text">{projectName}</span>
-        {!editingName && session.name && (
-          <span className="shrink-0 text-[11px] text-maestro-muted">{session.name}</span>
-        )}
-        {session.branch && (
-          <span className="shrink-0 rounded bg-maestro-muted/10 px-1 text-[10px] text-maestro-muted">
-            {session.branch}
-          </span>
-        )}
-        <span className="min-w-0 flex-1 truncate text-[11px] text-maestro-muted">{detail}</span>
+        Open terminal
       </button>
 
       {editingName ? (
@@ -153,7 +314,7 @@ function SessionRowBody({
           }}
           placeholder="Session name"
           aria-label="Rename session"
-          className="w-32 shrink-0 rounded border border-maestro-accent bg-maestro-card px-1 py-0 text-[11px] text-maestro-text outline-none"
+          className="w-40 shrink-0 rounded-lg border border-maestro-accent bg-maestro-card px-2.5 py-2 text-[12.5px] text-maestro-text outline-none"
           // biome-ignore lint/a11y/noAutofocus: revealed by an explicit click-to-rename, same as TerminalHeader's field.
           autoFocus
         />
@@ -164,10 +325,10 @@ function SessionRowBody({
             setNameValue(session.name ?? "");
             setEditingName(true);
           }}
-          className="shrink-0 rounded border border-maestro-border px-1.5 py-0.5 text-[11px] text-maestro-muted transition-colors hover:border-maestro-muted/50 hover:text-maestro-text"
+          className={`${actionClass} text-maestro-muted`}
           title="Rename this session"
         >
-          <Pencil size={11} />
+          <Pencil size={12} /> Rename
         </button>
       )}
 
@@ -175,199 +336,288 @@ function SessionRowBody({
         <button
           type="button"
           onClick={() => onDraftReply(session)}
-          className="flex shrink-0 items-center gap-1 rounded border border-maestro-border px-1.5 py-0.5 text-[11px] text-maestro-muted transition-colors hover:border-maestro-accent/50 hover:text-maestro-accent"
+          className={`${actionClass} text-maestro-muted`}
           title="Draft a reply with AI — a suggestion you edit and send yourself"
         >
-          <Sparkles size={11} /> Draft reply
+          <Sparkles size={12} /> Draft reply
         </button>
       )}
       {snoozeKey && <SnoozeButton snoozeKey={snoozeKey} label="this session" />}
-    </div>
+    </>
   );
 }
 
-function SessionRow({ item, ...rest }: SessionRowProps) {
-  if (item.kind !== "session") return null;
-  return (
-    <SessionRowBody
-      session={item.session}
-      tabId={item.tabId}
-      projectName={item.projectName}
-      {...rest}
-    />
-  );
-}
-
-function PrRow({ item }: { item: BandItem }) {
-  if (item.kind !== "pr") return null;
-  const { pr, projectName } = item;
-  const merged = pr.mergedAt !== null;
-  return (
-    <button
-      type="button"
-      className={rowClass}
-      onClick={() => void openUrl(pr.url).catch((err) => console.error("Failed to open PR:", err))}
-      title="Open on GitHub"
-    >
-      {merged ? (
-        <GitMerge size={13} className="shrink-0 text-maestro-purple" />
-      ) : (
-        <GitPullRequest size={13} className="shrink-0 text-maestro-accent" />
-      )}
-      <span
-        className={`${badgeBaseClass} ${
-          merged
-            ? "bg-maestro-purple/15 text-maestro-purple"
-            : "bg-maestro-accent/15 text-maestro-accent"
-        }`}
-      >
-        {merged ? "MERGED" : "CHANGES REQUESTED"}
-      </span>
-      <span className="shrink-0 text-[12px] font-medium text-maestro-text">{projectName}</span>
-      <span className="min-w-0 flex-1 truncate text-[11px] text-maestro-muted">
-        #{pr.number} {pr.title}
-      </span>
-      {merged && pr.mergedAt && (
-        <span className="shrink-0 text-[10px] text-maestro-muted">{relAgo(pr.mergedAt)}</span>
-      )}
-    </button>
-  );
-}
-
-/** An ACT run stopped at a confidence gate; clicking opens it in the Factory. */
-function RunRow({ item }: { item: BandItem }) {
-  if (item.kind !== "run") return null;
-  const { run } = item;
-  return (
-    <button
-      type="button"
-      className={rowClass}
-      onClick={() => {
-        void useActStore.getState().openDetail(run.id);
-        // One overlay slot, so handing over to the Factory IS closing Home.
-        useSurfaceStore.getState().openOverlay("factory");
-      }}
-      title="Open this run in the Factory to approve or reject the gate"
-    >
-      <span className={`${badgeBaseClass} bg-maestro-accent/15 text-maestro-accent`}>
-        FACTORY GATE
-      </span>
-      <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-maestro-text">
-        {run.title}
-      </span>
-      {run.stage && <span className="shrink-0 text-[10px] text-maestro-muted">{run.stage}</span>}
-    </button>
-  );
-}
-
-function HandoffRow({
-  item,
+function HandoffActions({
+  handoff,
   onLaunch,
   onDismiss,
   snoozeKey,
 }: {
-  item: BandItem;
+  handoff: HandoffInfo;
   onLaunch: (h: HandoffInfo) => void;
   onDismiss: (h: HandoffInfo) => void;
   snoozeKey: SnoozeKey;
 }) {
-  if (item.kind !== "handoff") return null;
-  const h = item.handoff;
   return (
-    <div className={rowClass}>
-      <span className={`${badgeBaseClass} bg-maestro-yellow/15 text-maestro-yellow`}>HANDOFF</span>
-      <span className="shrink-0 text-[12px] font-medium text-maestro-text">{h.repo}</span>
-      {h.branch && (
-        <span className="shrink-0 rounded bg-maestro-muted/10 px-1 text-[10px] text-maestro-muted">
-          {h.branch}
-        </span>
-      )}
-      {h.waiting && (
-        <span className={`${badgeBaseClass} bg-maestro-accent/15 text-maestro-accent`}>
-          ASKED YOU
-        </span>
-      )}
-      {h.uncommitted > 0 && (
-        <span className="shrink-0 text-[10px] text-maestro-yellow">
-          {h.uncommitted} uncommitted
-        </span>
-      )}
-      <span className="min-w-0 flex-1 truncate text-[11px] text-maestro-muted" title={h.lastAction}>
-        {h.lastAction || h.asks[h.asks.length - 1] || ""}
-      </span>
-      <span className="shrink-0 text-[10px] text-maestro-muted">{relAgo(h.lastActive)}</span>
+    <>
       <button
         type="button"
-        onClick={() => onLaunch(h)}
-        className="flex shrink-0 items-center gap-1 rounded border border-maestro-border px-1.5 py-0.5 text-[11px] text-maestro-muted transition-colors hover:border-maestro-green/50 hover:text-maestro-green"
+        onClick={() => onLaunch(handoff)}
+        className={primaryActionClass}
         title="Launch a session here, seeded with the handoff"
       >
-        <Play size={11} /> Resume
+        <Play size={12} /> Resume
       </button>
       <SnoozeButton snoozeKey={snoozeKey} label="this handoff" />
       <button
         type="button"
-        onClick={() => onDismiss(h)}
-        className="flex shrink-0 items-center gap-1 rounded border border-maestro-border px-1.5 py-0.5 text-[11px] text-maestro-muted transition-colors hover:border-maestro-red/50 hover:text-maestro-red"
+        onClick={() => onDismiss(handoff)}
+        className={`${actionClass} text-maestro-muted hover:border-maestro-red/50 hover:text-maestro-red`}
         title="Delete this handoff snapshot from disk — it will not come back"
       >
-        <Trash2 size={11} /> Dismiss
+        <Trash2 size={12} /> Dismiss
       </button>
-    </div>
+    </>
   );
 }
 
-function Band({
-  title,
-  icon,
-  items,
+/** The focused decision, in full: what is asked, and what you can do about it. */
+function FocusCard({
+  entry,
+  total,
+  onNavigate,
+  onDraftReply,
+  onLaunchHandoff,
+  onDismissHandoff,
+  snoozeKey,
+}: {
+  entry: QueueEntry;
+  total: number;
+  onNavigate: HomeViewProps["onNavigate"];
+  onDraftReply: (session: SessionConfig) => void;
+  onLaunchHandoff: (h: HandoffInfo) => void;
+  onDismissHandoff: (h: HandoffInfo) => void;
+  snoozeKey?: SnoozeKey;
+}) {
+  const { item } = entry;
+  const summary = itemSummary(item);
+  const badge = queueBadge(item);
+  const subtitle = itemSubtitle(item);
+  const time = itemTime(item);
+  const facts = focusFacts(item);
+  const askLines = itemAskLines(item);
+
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-[9px] border-b border-maestro-border px-5 py-[13px]">
+        <span className="shrink-0 rounded bg-maestro-accent px-[7px] py-0.5 font-mono text-[10.5px] font-semibold uppercase tracking-[0.06em] text-maestro-on-accent">
+          {entry.rank} of {total}
+        </span>
+        <span className="text-[13.5px] font-medium text-maestro-text">{summary.context}</span>
+        {subtitle && (
+          <span className="min-w-0 font-mono text-[11.5px] text-maestro-muted [overflow-wrap:anywhere]">
+            {subtitle}
+          </span>
+        )}
+        <div className="flex-1" />
+        <span className={`${queueBadgeClass} ${badge.cls}`}>{badge.label}</span>
+        {time && <span className="font-mono text-[11px] text-maestro-muted">{time}</span>}
+      </div>
+
+      <div className="px-5 pb-5 pt-[22px]">
+        <div className="mb-5 flex max-w-[820px] flex-col gap-3">
+          {(askLines.length > 0 ? askLines : [summary.title]).map((line) => (
+            <p
+              key={line}
+              className="text-[22px] font-semibold leading-[1.4] text-maestro-text [overflow-wrap:anywhere] [text-wrap:pretty]"
+            >
+              {line}
+            </p>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-[9px]">
+          {item.kind === "session" && (
+            <SessionActions
+              session={item.session}
+              tabId={item.tabId}
+              onNavigate={onNavigate}
+              onDraftReply={
+                item.session.status === "NeedsInput" && entry.band === "blocked"
+                  ? onDraftReply
+                  : undefined
+              }
+              snoozeKey={snoozeKey}
+            />
+          )}
+          {item.kind === "handoff" && (
+            <HandoffActions
+              handoff={item.handoff}
+              onLaunch={onLaunchHandoff}
+              onDismiss={onDismissHandoff}
+              snoozeKey={entry.key}
+            />
+          )}
+          {item.kind === "pr" && (
+            <button
+              type="button"
+              className={primaryActionClass}
+              onClick={() =>
+                void openUrl(item.pr.url).catch((err) => console.error("Failed to open PR:", err))
+              }
+              title="Open on GitHub"
+            >
+              <ExternalLink size={12} /> Open on GitHub
+            </button>
+          )}
+          {item.kind === "pr" && snoozeKey && (
+            <SnoozeButton snoozeKey={snoozeKey} label="this pull request" />
+          )}
+          {item.kind === "run" && (
+            <button
+              type="button"
+              className={primaryActionClass}
+              onClick={() => {
+                void useActStore.getState().openDetail(item.run.id);
+                useHomeViewStore.getState().close();
+                useFactoryViewStore.getState().open();
+              }}
+              title="Open this run in the Factory to approve or reject the gate"
+            >
+              Open in the Factory
+            </button>
+          )}
+          {item.kind === "run" && snoozeKey && (
+            <SnoozeButton snoozeKey={snoozeKey} label="this run" />
+          )}
+          <div className="flex-1" />
+          <span className="font-mono text-[11.5px] text-maestro-muted">J next · K previous</span>
+        </div>
+      </div>
+
+      {facts.length > 0 && (
+        <div className="flex flex-wrap border-t border-maestro-border bg-maestro-surface">
+          {facts.map((fact) => (
+            <div
+              key={fact.label}
+              className="min-w-[200px] flex-1 border-l border-maestro-border px-5 py-[11px] first:border-l-0"
+            >
+              <div className={factLabelClass}>{fact.label}</div>
+              <div className="font-mono text-[11.5px] text-maestro-text [overflow-wrap:anywhere]">
+                {fact.value}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+/** One waiting row: rank, what kind, whose it is, what it asks, how long. */
+function QueueRow({
+  entry,
+  onInspect,
+}: {
+  entry: QueueEntry;
+  onInspect: (entry: QueueEntry) => void;
+}) {
+  const summary = itemSummary(entry.item);
+  const badge = queueBadge(entry.item);
+  const time = itemTime(entry.item);
+  const lines = itemAskLines(entry.item);
+  const ask = lines[lines.length - 1] ?? "";
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => onInspect(entry)}
+        aria-label={
+          summary.context === summary.title
+            ? `Inspect ${summary.title}`
+            : `Inspect ${summary.context}: ${summary.title}`
+        }
+        /* The row has room for the most recent ask only; every one of them is
+           on the card the moment the row is chosen, and in the tooltip
+           meanwhile. */
+        title={lines.join("\n")}
+        className="flex w-full flex-wrap items-center gap-3 rounded-lg bg-maestro-card px-3.5 py-[11px] text-left transition-colors hover:bg-maestro-surface"
+      >
+        <span className="w-[14px] shrink-0 font-mono text-[11px] font-semibold text-maestro-muted">
+          {entry.rank}
+        </span>
+        <span className={`${queueBadgeClass} ${badge.cls}`}>{badge.label}</span>
+        <span className="w-24 shrink-0 truncate text-[12.5px] font-medium text-maestro-text">
+          {summary.context}
+        </span>
+        <span className="min-w-[12rem] flex-1 truncate text-[12.5px] text-maestro-muted">
+          {ask}
+        </span>
+        <span className="w-11 shrink-0 text-right font-mono text-[11px] text-maestro-muted">
+          {time}
+        </span>
+      </button>
+    </li>
+  );
+}
+
+/** A band of the queue under its own hairline divider. */
+function QueueSection({
+  label,
+  entries,
   emptyText,
+  onInspect,
   stale,
   action,
-  renderItem,
 }: {
-  title: string;
-  icon: React.ReactNode;
-  items: BandItem[];
+  label: string;
+  entries: QueueEntry[];
   emptyText: string;
+  onInspect: (entry: QueueEntry) => void;
   stale?: string | null;
   action?: React.ReactNode;
-  renderItem: (item: BandItem, i: number) => React.ReactNode;
 }) {
   return (
-    <section>
-      <div className="mb-1.5 flex items-center gap-1.5">
-        {icon}
-        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-maestro-muted">
-          {title}
-        </h2>
-        <span className="text-[11px] text-maestro-muted/70">{items.length}</span>
+    <div className="mt-[22px]">
+      <div className="mb-2.5 flex items-center gap-2.5">
+        <span className={dividerLabelClass}>{label}</span>
         {stale && (
           <span
-            className={`${badgeBaseClass} bg-maestro-yellow/15 text-maestro-yellow`}
+            className={`${queueBadgeClass} bg-maestro-yellow/15 text-maestro-yellow`}
             title={stale}
           >
             STALE
           </span>
         )}
-        <div className="flex-1" />
+        <span className="h-px flex-1 bg-maestro-border" />
         {action}
       </div>
-      {items.length === 0 ? (
-        <p className="rounded border border-dashed border-maestro-border px-3 py-2 text-[11px] text-maestro-muted/70">
-          {emptyText}
-        </p>
+      {entries.length === 0 ? (
+        <p className="px-3.5 text-[12px] text-maestro-muted">{emptyText}</p>
       ) : (
-        <div className="flex flex-col gap-1.5">{items.map(renderItem)}</div>
+        <ul aria-label={label} className="flex flex-col gap-px">
+          {entries.map((entry) => (
+            <QueueRow key={entry.key} entry={entry} onInspect={onInspect} />
+          ))}
+        </ul>
       )}
-    </section>
+    </div>
   );
 }
 
+type QueueBand = "blocked" | "parked" | "landed" | "running";
+
+interface QueueEntry {
+  item: BandItem;
+  key: string;
+  band: QueueBand;
+  /** 1-based position in the whole queue, so the focus card can say "3 of 9". */
+  rank: number;
+}
+
 /**
- * Home — the decision queue. Three bands, in the only order that matters:
- * what is blocked on you, what landed since you looked, what is running.
- * Everything else in the app is reachable from here, not shown here.
+ * Home, the decision queue. One item has your attention at the top, the rest
+ * wait beneath it in the only order that matters: what is blocked on you,
+ * what landed since you looked, what is running.
  */
 export function HomeView({ onNavigate, onClose }: HomeViewProps) {
   const sessions = useSessionStore(useShallow((s) => s.sessions));
@@ -388,6 +638,12 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
   const unsnooze = useSnoozeStore((s) => s.unsnooze);
   const closedBatches = useClosedSessionsStore(useShallow((s) => s.batches));
   const [statusFilter, setStatusFilter] = useState<BackendSessionStatus | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const detailRef = useRef<HTMLElement>(null);
+  const focusDetail = useCallback(() => {
+    detailRef.current?.focus({ preventScroll: true });
+    detailRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, []);
 
   const bandTabs: BandTab[] = useMemo(
     () =>
@@ -448,15 +704,104 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
     [statusFilter],
   );
 
+  /* Set when a dismiss could not go through, cleared on the next attempt. */
+  const [dismissError, setDismissError] = useState<string | null>(null);
+
   const launchHandoff = useLaunchHandoff(onNavigate);
   const restoreClosedBatch = useRestoreClosedBatch(onNavigate);
 
   /* Snoozed rows leave the band but stay reachable in a shelf below it — a
-     hidden row with no way back is indistinguishable from a lost one. */
+     hidden row with no way back is indistinguishable from a lost one.
+     Every band is filtered, not only the blocked one: putting off a parked
+     handoff used to hide nothing, so the count stayed where it was however
+     many rows you had dealt with. */
   const blocked = useMemo(
     () => partitionSnoozed(filtered(bands.blocked), snoozeEntries, Date.now()),
     [bands.blocked, filtered, snoozeEntries],
   );
+  const parked = useMemo(
+    () => partitionSnoozed(filtered(bands.parked), snoozeEntries, Date.now()),
+    [bands.parked, filtered, snoozeEntries],
+  );
+  const landed = useMemo(
+    () => partitionSnoozed(filtered(bands.landed), snoozeEntries, Date.now()),
+    [bands.landed, filtered, snoozeEntries],
+  );
+  const running = useMemo(
+    () => partitionSnoozed(filtered(bands.running), snoozeEntries, Date.now()),
+    [bands.running, filtered, snoozeEntries],
+  );
+  /* One shelf for everything put off, in band order. Four shelves would make
+     the way back depend on which band the row happened to sit in. */
+  const snoozed = useMemo(
+    () => [...blocked.snoozed, ...parked.snoozed, ...landed.snoozed, ...running.snoozed],
+    [blocked.snoozed, parked.snoozed, landed.snoozed, running.snoozed],
+  );
+
+  /* One flat queue in band order, so the focus card and j/k agree on what
+     "next" means, while each band keeps its own divider below. */
+  const queue = useMemo(() => {
+    const entries: QueueEntry[] = [];
+    const push = (items: BandItem[], band: QueueBand) => {
+      for (const item of items) {
+        entries.push({ item, key: bandItemKey(item), band, rank: entries.length + 1 });
+      }
+    };
+    push(blocked.visible, "blocked");
+    push(parked.visible, "parked");
+    push(landed.visible, "landed");
+    push(running.visible, "running");
+    return entries;
+  }, [blocked.visible, parked.visible, landed.visible, running.visible]);
+
+  /* Nothing selected means the top of the queue is what needs you: the card
+     is never empty while the queue is not. */
+  const focused = queue.find((entry) => entry.key === selectedKey) ?? queue[0] ?? null;
+  const focusedKey = focused?.key ?? null;
+
+  const inspect = useCallback(
+    (entry: QueueEntry) => {
+      setSelectedKey(entry.key);
+      if (entry.key === focusedKey) focusDetail();
+    },
+    [focusedKey, focusDetail],
+  );
+
+  useEffect(() => {
+    if (selectedKey) focusDetail();
+  }, [selectedKey, focusDetail]);
+
+  /* A selection whose row has left the queue falls back to the top rather
+     than leaving the card showing work that is no longer there. */
+  useEffect(() => {
+    if (selectedKey && !queue.some((entry) => entry.key === selectedKey)) setSelectedKey(null);
+  }, [queue, selectedKey]);
+
+  /* j/k walk the queue, clamped at both ends. Everything that owns the
+     keyboard for itself (the tour, the draft dialog, a field, a terminal)
+     gets it first. */
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.defaultPrevented) return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const forward = event.key === "j";
+      const back = event.key === "k";
+      if (!forward && !back) return;
+      if (useTourStore.getState().isOpen) return;
+      if (useReplyDraftStore.getState().target) return;
+      if (isTypingTarget(event.target)) return;
+      if (queue.length === 0) return;
+
+      const at = queue.findIndex((entry) => entry.key === focusedKey);
+      const next = Math.min(Math.max((at < 0 ? 0 : at) + (forward ? 1 : -1), 0), queue.length - 1);
+      event.preventDefault();
+      const key = queue[next].key;
+      setSelectedKey(key);
+      if (key === focusedKey) focusDetail();
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [queue, focusedKey, focusDetail]);
 
   const handleRestore = useCallback(
     (batchId: string) => {
@@ -468,7 +813,12 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
 
   /* Dismiss deletes the snapshot file, so it asks first — every other action
      on this screen is reversible and this one is not. */
+  /* Deleting the snapshot is the one thing on this screen that cannot be
+     undone, so the confirmation stays. What could not stay is where the
+     failure went: the console only, which from the outside looks exactly like
+     a row that refuses to go away. */
   const handleDismissHandoff = useCallback((h: HandoffInfo) => {
+    setDismissError(null);
     void ask(
       `Delete the handoff snapshot for ${h.repo}? It is removed from disk and cannot be restored.`,
       { title: "Dismiss handoff", kind: "warning" },
@@ -476,9 +826,9 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
       .then(async (confirmed) => {
         if (!confirmed) return;
         const error = await useBandStore.getState().dismissHandoff(h.slug);
-        if (error) console.error("Failed to dismiss handoff:", error);
+        if (error) setDismissError(`Could not dismiss the ${h.repo} handoff: ${error}`);
       })
-      .catch((err) => console.error("Failed to dismiss handoff:", err));
+      .catch((err) => setDismissError(`Could not dismiss the ${h.repo} handoff: ${String(err)}`));
   }, []);
 
   /* After inserting a draft the user has to SEE the input line to press Enter
@@ -507,60 +857,62 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
     });
   }, []);
 
+  const rest = (band: QueueBand) =>
+    queue.filter((entry) => entry.band === band && entry.key !== focusedKey);
+
+  /* The reference's "oldest 41m". It is the least recently updated blocked
+     row, not the longest wait: nothing records when a row started waiting,
+     and rows without a timestamp of their own are simply not candidates. */
+  const oldestBlocked = shortAgo(
+    blocked.visible
+      .map(itemTimestamp)
+      .filter((at): at is number => at !== null)
+      .reduce<number | null>((oldest, at) => (oldest === null || at < oldest ? at : oldest), null),
+  );
+
+  const prsStale =
+    prsError ??
+    (repoPrs.some((r) => r.error)
+      ? `Could not poll: ${repoPrs
+          .filter((r) => r.error)
+          .map((r) => r.projectName)
+          .join(", ")}`
+      : null);
+
   return (
     /* z-50 like the landscape overlay: the zoomed eagle pane sits at z-40. */
     <div className="absolute inset-0 z-50 flex flex-col bg-maestro-bg">
-      {/* Toolbar */}
-      <div className="flex h-10 shrink-0 items-center gap-1.5 overflow-x-auto border-b border-maestro-border px-3">
-        <span className="mr-1 shrink-0 text-[12px] font-semibold text-maestro-text">Home</span>
-
-        {/* Fleet strip: one chip per status with a live count; click filters.
-            Idle sessions live in no band, so that chip is a count, not a filter
-            (clicking it would blank all three bands — review fc0e6b9, LOW #2). */}
-        {STRIP_ORDER.map((status) => {
-          const count = bands.counts[status];
-          const badge = SESSION_STATUS_BADGES[status];
-          const active = statusFilter === status;
-          const countOnly = status === "Idle";
-          const chipContent = (
-            <>
-              <span className={`${badgeBaseClass} ${badge.cls}`}>{badge.label}</span>
-              <span>{count}</span>
-            </>
-          );
-          const chipTitle = `${badge.label}: ${count} session${count === 1 ? "" : "s"}`;
-          if (countOnly) {
-            return (
-              <span
-                key={status}
-                className={`flex shrink-0 items-center gap-1 rounded border border-maestro-border px-1.5 py-0.5 text-[10px] text-maestro-muted ${
-                  count === 0 ? "opacity-40" : ""
-                }`}
-                title={chipTitle}
-              >
-                {chipContent}
-              </span>
-            );
-          }
-          return (
-            <button
-              key={status}
-              type="button"
-              onClick={() => setStatusFilter(active ? null : status)}
-              disabled={count === 0 && !active}
-              className={`flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] transition-colors ${
-                active
-                  ? "border-maestro-accent/60 text-maestro-text"
-                  : "border-maestro-border text-maestro-muted hover:text-maestro-text"
-              } ${count === 0 && !active ? "opacity-40" : ""}`}
-              title={chipTitle}
-            >
-              {chipContent}
-            </button>
-          );
-        })}
-
+      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-[34px] pb-2.5 pt-[26px]">
+        {/* The rail navigates here as "Inbox", so the title and the close
+            control say Inbox too. The reference's own words for this screen,
+            "Blocked on you", stay on the count beside it, which is where the
+            other five screens put what their number means. */}
+        <h1 className="font-mono text-[13px] font-semibold uppercase tracking-[0.09em] text-maestro-muted">
+          Inbox
+        </h1>
+        <span className="font-mono text-[13px] font-semibold text-maestro-accent">
+          {blocked.visible.length} blocked on you
+        </span>
         <div className="flex-1" />
+        {oldestBlocked && (
+          <span
+            className="font-mono text-[11.5px] text-maestro-muted"
+            title="How long the blocked row that has gone longest without an update has been sitting there"
+          >
+            oldest {oldestBlocked}
+          </span>
+        )}
+        <span className="font-mono text-[11.5px] text-maestro-muted">
+          {landed.visible.length} landed · {running.visible.length} running
+        </span>
+        {dismissError && (
+          <span
+            role="alert"
+            className="rounded border border-maestro-red/50 px-2 py-0.5 text-[11.5px] text-maestro-red"
+          >
+            {dismissError}
+          </span>
+        )}
         <button
           type="button"
           onClick={() => useTourStore.getState().open()}
@@ -584,147 +936,183 @@ export function HomeView({ onNavigate, onClose }: HomeViewProps) {
           type="button"
           onClick={onClose}
           className="rounded p-1.5 text-maestro-muted transition-colors hover:bg-maestro-card hover:text-maestro-text"
-          aria-label="Close home"
+          aria-label="Close inbox"
         >
           <X size={14} />
         </button>
       </div>
 
-      {/* Bands */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-4">
-          <ClosedBatchShelf onRestore={handleRestore} />
-          <Band
-            title="Blocked on you"
-            icon={<CircleDot size={12} className="text-maestro-accent" />}
-            items={blocked.visible}
-            emptyText="Nothing is blocked on you."
-            stale={handoffsError}
-            action={
-              bands.moreHandoffs > 0 ? (
-                <span
-                  className="text-[10px] text-maestro-muted/70"
-                  title="Older handoffs on disk, one per directory, hidden to keep the queue short"
-                >
-                  +{bands.moreHandoffs} more handoffs on disk
-                </span>
-              ) : undefined
-            }
-            renderItem={(item, i) =>
-              item.kind === "session" ? (
-                <SessionRow
-                  key={`s${item.session.id}`}
-                  item={item}
-                  onNavigate={onNavigate}
-                  /* Only a session that actually asked something has a
-                     question worth drafting against. */
-                  onDraftReply={item.session.status === "NeedsInput" ? handleDraftReply : undefined}
-                  snoozeKey={bandItemKey(item)}
-                />
-              ) : item.kind === "pr" ? (
-                <PrRow key={`p${item.pr.url}`} item={item} />
-              ) : item.kind === "run" ? (
-                <RunRow key={`r${item.run.id}`} item={item} />
-              ) : (
-                <HandoffRow
-                  key={`h${item.handoff.slug}-${i}`}
-                  item={item}
-                  onLaunch={launchHandoff}
-                  onDismiss={handleDismissHandoff}
-                  snoozeKey={bandItemKey(item)}
-                />
-              )
-            }
-          />
-
-          {blocked.snoozed.length > 0 && (
-            <section>
-              <div className="mb-1.5 flex items-center gap-1.5">
-                <Clock size={12} className="text-maestro-muted" />
-                <h2 className="text-[11px] font-semibold uppercase tracking-wider text-maestro-muted">
-                  Snoozed
-                </h2>
-                <span className="text-[11px] text-maestro-muted/70">{blocked.snoozed.length}</span>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                {blocked.snoozed.map((item) => {
-                  const key = bandItemKey(item);
-                  const label =
-                    item.kind === "session"
-                      ? (item.session.name ?? item.projectName)
-                      : item.kind === "handoff"
-                        ? item.handoff.repo
-                        : item.kind === "pr"
-                          ? `#${item.pr.number} ${item.pr.title}`
-                          : item.run.title;
-                  return (
-                    <div
-                      key={key}
-                      className="flex w-full items-center gap-2 rounded border border-maestro-border bg-maestro-card px-3 py-2 text-left opacity-70"
-                    >
-                      <span className="min-w-0 flex-1 truncate text-[11px] text-maestro-muted">
-                        {label}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => unsnooze(key)}
-                        className="shrink-0 rounded border border-maestro-border px-1.5 py-0.5 text-[11px] text-maestro-muted transition-colors hover:border-maestro-muted/50 hover:text-maestro-text"
-                        title="Bring this row back to the band now"
-                      >
-                        Bring back
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          )}
-          <Band
-            title="Landed since you looked"
-            icon={<CheckCircle2 size={12} className="text-maestro-green" />}
-            items={filtered(bands.landed)}
-            emptyText="Nothing new has landed."
-            /* A partially failed poll must not read as "nothing landed" —
-               that is silent under-reporting on a decision queue. */
-            stale={
-              prsError ??
-              (repoPrs.some((r) => r.error)
-                ? `Could not poll: ${repoPrs
-                    .filter((r) => r.error)
-                    .map((r) => r.projectName)
-                    .join(", ")}`
-                : null)
-            }
-            action={
-              <button
-                type="button"
-                onClick={markSeen}
-                className="rounded border border-maestro-border px-1.5 py-0.5 text-[10px] text-maestro-muted transition-colors hover:text-maestro-text"
-                title="Merged PRs up to now stop counting as news"
+      {/* Fleet strip: one chip per status with a live count; click filters.
+          Idle sessions live in no band, so that chip is a count, not a filter
+          (clicking it would blank all three bands — review fc0e6b9, LOW #2). */}
+      <div className="flex shrink-0 flex-wrap items-center gap-1.5 px-[34px] pb-3">
+        {STRIP_ORDER.map((status) => {
+          const count = bands.counts[status];
+          const badge = SESSION_STATUS_BADGES[status];
+          const active = statusFilter === status;
+          const countOnly = status === "Idle";
+          const chipContent = (
+            <>
+              <span className={`${queueBadgeClass} ${badge.cls}`}>{badge.label}</span>
+              <span className="font-mono text-[10.5px]">{count}</span>
+            </>
+          );
+          const chipTitle = `${badge.label}: ${count} session${count === 1 ? "" : "s"}`;
+          if (countOnly) {
+            return (
+              <span
+                key={status}
+                className={`flex shrink-0 items-center gap-1.5 rounded-full border border-maestro-border px-2 py-1 text-maestro-muted ${
+                  count === 0 ? "opacity-40" : ""
+                }`}
+                title={chipTitle}
               >
-                Mark seen
-              </button>
-            }
-            renderItem={(item, i) =>
-              item.kind === "session" ? (
-                <SessionRow key={`s${item.session.id}`} item={item} onNavigate={onNavigate} />
-              ) : (
-                <PrRow key={`p${item.kind === "pr" ? item.pr.url : i}`} item={item} />
-              )
-            }
-          />
-          <Band
-            title="Running"
-            icon={<Inbox size={12} className="text-maestro-blue" />}
-            items={filtered(bands.running)}
-            emptyText="Nothing is running."
-            renderItem={(item) =>
-              item.kind === "session" ? (
-                <SessionRow key={`s${item.session.id}`} item={item} onNavigate={onNavigate} />
-              ) : null
-            }
-          />
-        </div>
+                {chipContent}
+              </span>
+            );
+          }
+          return (
+            <button
+              key={status}
+              type="button"
+              onClick={() => setStatusFilter(active ? null : status)}
+              disabled={count === 0 && !active}
+              aria-pressed={active}
+              className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-1 transition-colors ${
+                active
+                  ? "border-maestro-accent/60 text-maestro-text"
+                  : "border-maestro-border text-maestro-muted hover:text-maestro-text"
+              } ${count === 0 && !active ? "opacity-40" : ""}`}
+              title={chipTitle}
+            >
+              {chipContent}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-[34px] pb-8">
+        <ClosedBatchShelf onRestore={handleRestore} />
+
+        <section
+          ref={detailRef}
+          tabIndex={-1}
+          aria-label="Work detail"
+          className="overflow-hidden rounded-xl border border-maestro-accent/45 bg-maestro-card"
+        >
+          {focused ? (
+            <div key={focusedKey}>
+              <FocusCard
+                entry={focused}
+                total={queue.length}
+                onNavigate={onNavigate}
+                onDraftReply={handleDraftReply}
+                onLaunchHandoff={launchHandoff}
+                onDismissHandoff={handleDismissHandoff}
+                snoozeKey={focused.key}
+              />
+            </div>
+          ) : (
+            <div className="flex flex-col items-start gap-3 px-5 py-8">
+              <Inbox size={24} strokeWidth={1.2} className="text-maestro-muted" />
+              <h2 className="text-[18px] font-medium text-maestro-text">Nothing is waiting</h2>
+              <p className="max-w-md text-[12.5px] leading-relaxed text-maestro-muted">
+                No session is asking, nothing has landed and nothing is running. New work appears
+                here on its own.
+              </p>
+            </div>
+          )}
+        </section>
+
+        <QueueSection
+          label="Then"
+          entries={rest("blocked")}
+          emptyText="Nothing else is blocked on you."
+          onInspect={inspect}
+        />
+
+        {/* Parked is not "blocked on you": nobody is waiting on these, they
+            are yours to pick up. Kept in the queue so j/k still reach them. */}
+        <QueueSection
+          label="Parked, pick up when you want"
+          entries={rest("parked")}
+          emptyText="No handoffs are waiting on disk."
+          onInspect={inspect}
+          stale={handoffsError}
+          action={
+            bands.moreHandoffs > 0 ? (
+              <span
+                className="font-mono text-[10.5px] text-maestro-muted/70"
+                title="Older handoffs on disk, one per directory, hidden to keep the queue short"
+              >
+                +{bands.moreHandoffs} more handoffs on disk
+              </span>
+            ) : undefined
+          }
+        />
+
+        {snoozed.length > 0 && (
+          <div className="mt-[22px]">
+            <div className="mb-2.5 flex items-center gap-2.5">
+              <Clock size={11} className="text-maestro-muted" />
+              <span className={dividerLabelClass}>Snoozed</span>
+              <span className="font-mono text-[10.5px] text-maestro-muted/70">
+                {snoozed.length}
+              </span>
+              <span className="h-px flex-1 bg-maestro-border" />
+            </div>
+            <div className="flex flex-col gap-px">
+              {snoozed.map((item) => {
+                const key = bandItemKey(item);
+                return (
+                  <div
+                    key={key}
+                    className="flex flex-wrap items-center gap-3 rounded-lg bg-maestro-card px-3.5 py-2.5 opacity-70"
+                  >
+                    <span className="min-w-[12rem] flex-1 truncate text-[12px] text-maestro-muted">
+                      {itemSummary(item).title}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => unsnooze(key)}
+                      className="shrink-0 rounded border border-maestro-border px-2 py-0.5 text-[11px] text-maestro-muted transition-colors hover:border-maestro-muted/50 hover:text-maestro-text"
+                      title="Bring this row back to the band now"
+                    >
+                      Bring back
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <QueueSection
+          label="Landed since you looked"
+          entries={rest("landed")}
+          emptyText="Nothing new has landed."
+          onInspect={inspect}
+          /* A partially failed poll must not read as "nothing landed" —
+             that is silent under-reporting on a decision queue. */
+          stale={prsStale}
+          action={
+            <button
+              type="button"
+              onClick={markSeen}
+              className="rounded border border-maestro-border px-2 py-0.5 font-mono text-[10.5px] text-maestro-muted transition-colors hover:text-maestro-text"
+              title="Merged PRs up to now stop counting as news"
+            >
+              Mark seen
+            </button>
+          }
+        />
+
+        <QueueSection
+          label="Running"
+          entries={rest("running")}
+          emptyText="Nothing is running."
+          onInspect={inspect}
+        />
       </div>
 
       {/* Suggestion panel for a blocked session. Renders nothing with no target. */}

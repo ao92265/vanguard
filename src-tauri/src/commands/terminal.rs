@@ -228,19 +228,35 @@ pub async fn kill_session(
     result
 }
 
-/// Saves image data from the frontend clipboard to a temporary file.
+/// Saves clipboard image data on the session's execution host and pastes its path.
 ///
 /// Called by the frontend when the user pastes an image into the terminal.
-/// The image bytes are written to a temp file and the absolute path is returned
-/// so the frontend can insert it into the terminal input for Claude to read.
+/// The backend revalidates the session and image destination before inserting
+/// the path, so a delayed upload cannot paste into a changed destination.
+///
+/// Returns the staged path it pasted AND the destination it staged on. Both
+/// come from the target snapshot this upload used, so the delivery sheet can
+/// tell the user where the image actually landed instead of guessing from
+/// whatever the frontend last saw.
 ///
 /// The bytes arrive as the raw IPC request body (`application/octet-stream`)
 /// rather than a JSON field: as JSON, Tauri renders every image byte as a
 /// decimal-digit string (~4x expansion) on the webview's main thread, which
 /// froze the UI for large screenshots. The media type rides in a header.
 #[tauri::command]
-pub async fn save_pasted_image(request: tauri::ipc::Request<'_>) -> Result<String, String> {
-    const MAX_IMAGE_SIZE: usize = 50 * 1024 * 1024; // 50 MB
+pub async fn save_pasted_image(
+    request: tauri::ipc::Request<'_>,
+    manager: State<'_, ProcessManager>,
+) -> Result<StagedImage, String> {
+    const MAX_IMAGE_SIZE: usize = crate::core::session_attachments::MAX_IMAGE_BYTES;
+    let session_id: u32 = request
+        .headers()
+        .get("session-id")
+        .and_then(|v| v.to_str().ok())
+        .ok_or("Missing session-id header")?
+        .parse()
+        .map_err(|_| "Invalid session-id")?;
+    let pid = manager.session_pid(session_id).ok_or("Session is gone")?;
 
     // Normally the bytes arrive raw. Tauri falls back to `postMessage` when the
     // custom protocol is unavailable (e.g. a restrictive CSP), and that path
@@ -276,26 +292,68 @@ pub async fn save_pasted_image(request: tauri::ipc::Request<'_>) -> Result<Strin
         .and_then(|v| v.to_str().ok())
         .ok_or_else(|| "Missing media-type header".to_string())?;
 
-    let extension = match media_type {
-        "image/png" => "png",
-        "image/jpeg" | "image/jpg" => "jpg",
-        "image/gif" => "gif",
-        "image/webp" => "webp",
-        "image/bmp" => "bmp",
-        _ => {
-            return Err(format!("Unsupported media type: {media_type}"));
-        }
-    };
+    let service = manager.attachments();
+    let image = service.save(session_id, &data, media_type).await?;
+    let pm = manager.inner().clone();
+    let pending = image.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        pm.attachments().with_current(session_id, &pending, |path| {
+            if pm.session_pid(session_id) != Some(pid) {
+                return Err("Session changed during upload".into());
+            }
+            pm.write_stdin(session_id, &format!("\x1b[200~{path}\x1b[201~ "))
+                .map_err(|e| e.to_string())?;
+            Ok(path.to_string())
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|result| result);
+    if result.is_err() {
+        service.remove(&image.path).await;
+    }
+    result.map(|path| StagedImage {
+        path,
+        destination: image.destination(),
+    })
+}
 
-    let filename = format!("maestro-paste-{}.{}", uuid::Uuid::new_v4(), extension);
-    let path = std::env::temp_dir().join(filename);
+/// What one `save_pasted_image` call did: the staged path, and where it went.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StagedImage {
+    pub path: String,
+    /// SSH destination used by this upload, or `None` for this machine.
+    pub destination: Option<String>,
+}
 
-    tokio::fs::write(&path, data)
-        .await
-        .map_err(|e| format!("Failed to save pasted image: {e}"))?;
+#[tauri::command]
+pub async fn set_image_target(
+    session_id: u32,
+    target: Option<String>,
+    manager: State<'_, ProcessManager>,
+) -> Result<(), String> {
+    let manager = manager.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        manager.session_pid(session_id).ok_or("Session is gone")?;
+        manager.attachments().set_target(session_id, target)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
 
-    log::info!("Saved pasted image to {}", path.display());
-    Ok(path.to_string_lossy().into_owned())
+#[tauri::command]
+pub async fn get_image_target(
+    session_id: u32,
+    manager: State<'_, ProcessManager>,
+) -> Result<Option<String>, String> {
+    let manager = manager.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        manager.session_pid(session_id).ok_or("Session is gone")?;
+        Ok(manager.attachments().target(session_id))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Kills all active PTY sessions and clears the session registry.

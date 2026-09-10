@@ -1,4 +1,4 @@
-import { Check, Play, RadioTower, RefreshCw, Send, ShieldCheck, ShieldOff, X } from "lucide-react";
+import { Check, Play, RefreshCw, Send, ShieldCheck, ShieldOff, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
@@ -33,9 +33,10 @@ const STATUS_BADGES: Record<ProposalStatus, string> = {
   error: "bg-red-500/15 text-red-400",
 };
 
-const labelClass = "text-[10px] font-semibold uppercase tracking-wider text-maestro-muted";
-const fieldClass =
-  "w-full rounded border border-maestro-border bg-maestro-card px-2 py-1.5 text-[12px] text-maestro-text placeholder:text-maestro-muted/60 focus:border-maestro-accent/50 focus:outline-none";
+const labelClass =
+  "font-mono text-[10.5px] font-semibold uppercase tracking-[0.07em] text-maestro-muted";
+const chipClass =
+  "flex max-w-full shrink-0 items-center gap-1.5 rounded-full px-3 py-[5px] font-mono text-[11.5px] font-medium transition-colors";
 
 function basename(path: string): string {
   const parts = path.split(/[\\/]/).filter(Boolean);
@@ -50,7 +51,14 @@ export function sessionLabel(session: SessionConfig): string {
   return session.branch ? `${base} — ${session.branch}` : base;
 }
 
-/** One proposal awaiting (or past) a decision. */
+/**
+ * One proposal awaiting (or past) a decision: what it wants to say on the
+ * left, its own status next to the actions on the right.
+ *
+ * The status is the queue's own word for the row (pending, sent, blocked),
+ * never a risk score: nothing upstream rates a proposal, and a made-up
+ * severity is exactly the sort of thing an operator would trust.
+ */
 function ProposalRow({
   proposal,
   targetLabel,
@@ -61,40 +69,53 @@ function ProposalRow({
   onDecide: (approve: boolean) => void;
 }) {
   const decidable = proposal.status === "pending";
+  const preview = proposalPreview(proposal);
   return (
-    <div className="rounded border border-maestro-border bg-maestro-card p-2">
-      <div className="flex items-center gap-2">
-        <span
-          className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${STATUS_BADGES[proposal.status]}`}
-        >
-          {proposal.status}
-        </span>
-        <span className="truncate text-[11px] text-maestro-text">→ {targetLabel}</span>
+    <li
+      aria-label={preview}
+      className="flex flex-wrap items-center gap-3 rounded-[10px] border border-maestro-border bg-maestro-card px-4 py-[14px]"
+    >
+      <div className="min-w-0 flex-1 basis-64">
+        <div className="mb-1 whitespace-pre-wrap text-[13.5px] font-medium text-maestro-text [overflow-wrap:anywhere]">
+          {preview}
+        </div>
+        <div className="flex flex-wrap items-center gap-x-2 font-mono text-[11.5px] text-maestro-muted">
+          <span className="[overflow-wrap:anywhere]">→ {targetLabel}</span>
+          {proposal.note && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span className="[overflow-wrap:anywhere]">{proposal.note}</span>
+            </>
+          )}
+        </div>
+        {proposal.error && (
+          <div className="mt-1 font-mono text-[11.5px] text-red-400">{proposal.error}</div>
+        )}
       </div>
-      {proposal.note && <p className="mt-1 text-[11px] text-maestro-muted">{proposal.note}</p>}
-      <p className="mt-1 whitespace-pre-wrap break-words text-[12px] text-maestro-text">
-        {proposalPreview(proposal)}
-      </p>
-      {proposal.error && <p className="mt-1 text-[11px] text-red-400">{proposal.error}</p>}
+      <span
+        className={`shrink-0 rounded-full px-2.5 py-[3px] font-mono text-[11px] font-medium ${STATUS_BADGES[proposal.status]}`}
+      >
+        {proposal.status}
+      </span>
       {decidable && (
-        <div className="mt-2 flex gap-1.5">
+        <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"
             onClick={() => onDecide(true)}
-            className="rounded bg-maestro-green/15 px-2 py-1 text-[11px] font-semibold text-maestro-green transition-colors hover:bg-maestro-green/25"
+            className="rounded-lg bg-maestro-accent px-[15px] py-[7px] text-[12.5px] font-medium text-maestro-on-accent transition-opacity hover:opacity-90"
           >
             Approve
           </button>
           <button
             type="button"
             onClick={() => onDecide(false)}
-            className="rounded bg-maestro-card px-2 py-1 text-[11px] text-maestro-muted transition-colors hover:text-maestro-text"
+            className="rounded-lg border border-maestro-border px-[15px] py-[7px] text-[12.5px] font-medium text-maestro-muted transition-colors hover:text-maestro-text"
           >
             Reject
           </button>
         </div>
       )}
-    </div>
+    </li>
   );
 }
 
@@ -196,22 +217,25 @@ export function OrchestratorView({ onClose }: OrchestratorViewProps) {
     .filter((p) => !pending.includes(p))
     .slice(-30)
     .reverse();
+  const blockedFromLaunch = sessionId === null && !activeTab;
 
   return (
     /* z-50: same overlay shell as Home/Factory/Landscape (eagle zoom is z-40). */
     <div className="absolute inset-0 z-50 flex flex-col bg-maestro-bg">
-      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-maestro-border px-3">
-        <RadioTower size={13} className="text-maestro-muted" />
-        <span className="text-[12px] font-semibold text-maestro-text">Orchestrator</span>
-        <span className="text-[11px] text-maestro-muted">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-[34px] pb-4 pt-[30px]">
+        <h1 className="font-mono text-[13px] font-semibold uppercase tracking-[0.09em] text-maestro-muted">
+          Orchestrator
+        </h1>
+        <span className="font-mono text-[12px] text-maestro-muted">
           {sessionId === null ? "not running" : "running"}
+          {safeMode ? " · safe mode: nothing runs without your yes" : " · free run"}
           {pending.length > 0 && ` · ${pending.length} waiting on you`}
         </span>
         <div className="flex-1" />
         <button
           type="button"
           onClick={() => void setSafeMode(!safeMode)}
-          className={`flex items-center gap-1 rounded px-2 py-1 text-[11px] font-semibold transition-colors ${
+          className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 font-mono text-[11.5px] font-medium transition-colors ${
             safeMode
               ? "bg-maestro-green/15 text-maestro-green hover:bg-maestro-green/25"
               : "bg-amber-500/15 text-amber-400 hover:bg-amber-500/25"
@@ -228,7 +252,7 @@ export function OrchestratorView({ onClose }: OrchestratorViewProps) {
         <button
           type="button"
           onClick={() => void clear()}
-          className="rounded px-2 py-1 text-[11px] text-maestro-muted transition-colors hover:bg-maestro-card hover:text-maestro-text"
+          className="rounded-lg px-2.5 py-1.5 text-[12px] text-maestro-muted transition-colors hover:bg-maestro-card hover:text-maestro-text"
           title="Fresh start — drop the queue and the scope. Safe mode stays as it is."
         >
           Fresh start
@@ -252,22 +276,27 @@ export function OrchestratorView({ onClose }: OrchestratorViewProps) {
       </div>
 
       {!safeMode && (
-        <div className="shrink-0 border-b border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-400">
+        <div className="shrink-0 border-y border-amber-500/30 bg-amber-500/10 px-[34px] py-2 text-[11.5px] text-amber-400">
           Free run: proposals are delivered to your sessions without asking. Turn safe mode back on
           to review them first.
         </div>
       )}
       {error && (
-        <div className="shrink-0 border-b border-red-500/30 bg-red-500/10 px-3 py-1.5 text-[11px] text-red-400">
+        <div className="shrink-0 border-y border-red-500/30 bg-red-500/10 px-[34px] py-2 text-[11.5px] text-red-400">
           {error}
         </div>
       )}
 
-      <div className="flex flex-1 overflow-hidden">
-        <div className="flex w-80 shrink-0 flex-col gap-2.5 overflow-y-auto border-r border-maestro-border p-3">
-          <h2 className={labelClass}>Goal</h2>
+      <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-[34px] pb-[30px] pt-4">
+        <section
+          aria-label="Goal and scope"
+          className="shrink-0 rounded-[11px] border border-maestro-border bg-maestro-card px-5 py-[18px]"
+        >
+          <div className={`${labelClass} mb-[9px]`}>Goal</div>
           <textarea
-            className={`${fieldClass} min-h-24 resize-y`}
+            aria-label="Goal"
+            className="w-full resize-y rounded-lg border border-maestro-border bg-maestro-surface px-3.5 py-3 text-[18px] font-medium leading-[1.45] text-maestro-text placeholder:text-maestro-muted focus:border-maestro-accent focus:outline-none"
+            rows={2}
             value={goal}
             onChange={(e) => setGoal(e.target.value)}
             onKeyDown={(e) => {
@@ -282,96 +311,107 @@ export function OrchestratorView({ onClose }: OrchestratorViewProps) {
                 : "What should the fleet get done?"
             }
           />
-          <button
-            type="button"
-            onClick={handleSend}
-            disabled={!goal.trim() || busy || (sessionId === null && !activeTab)}
-            className="flex items-center justify-center gap-1.5 rounded bg-maestro-accent/15 px-2 py-1.5 text-[12px] font-semibold text-maestro-accent transition-colors hover:bg-maestro-accent/25 disabled:opacity-40"
-          >
-            {sessionId === null ? <Play size={12} /> : <Send size={12} />}
-            {sessionId === null ? "Start orchestrator" : "Send goal"}
-          </button>
-          {sessionId === null && !activeTab && (
-            <p className="text-[11px] text-maestro-muted/70">
-              Open a project tab first — the orchestrator launches into it like any other session.
-            </p>
-          )}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleSend}
+              disabled={!goal.trim() || busy || blockedFromLaunch}
+              className="flex items-center gap-1.5 rounded-lg bg-maestro-accent px-[15px] py-[7px] text-[12.5px] font-medium text-maestro-on-accent transition-opacity hover:opacity-90 disabled:opacity-40"
+            >
+              {sessionId === null ? <Play size={12} /> : <Send size={12} />}
+              {sessionId === null ? "Start orchestrator" : "Send goal"}
+            </button>
+            {blockedFromLaunch && (
+              <span className="text-[11.5px] text-maestro-muted">
+                Open a project tab first: the orchestrator launches into it like any other session.
+              </span>
+            )}
+          </div>
 
-          <h2 className={`${labelClass} mt-2`}>
-            Scope {scope.length > 0 ? `(${scope.length})` : "— all sessions"}
-          </h2>
-          <p className="text-[11px] text-maestro-muted/70">
-            Tick the sessions this goal may touch. A proposal for anything else is blocked, not
-            queued.
-          </p>
-          {drivable.length === 0 ? (
-            <p className="rounded border border-dashed border-maestro-border px-3 py-2 text-[11px] text-maestro-muted/70">
-              No other sessions running.
-            </p>
-          ) : (
-            drivable.map((session) => {
-              const ticked = scope.some((e) => e.sessionId === session.id);
-              return (
-                <button
-                  key={session.id}
-                  type="button"
-                  onClick={() => toggleScope(session)}
-                  className={`flex items-center gap-2 rounded border px-2 py-1.5 text-left text-[11px] transition-colors ${
-                    ticked
-                      ? "border-maestro-accent/50 bg-maestro-accent/10 text-maestro-text"
-                      : "border-maestro-border bg-maestro-card text-maestro-muted hover:text-maestro-text"
-                  }`}
-                >
-                  <span
-                    className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm border ${
+          <div className="mt-[14px] flex flex-wrap items-center gap-2">
+            {drivable.length === 0 ? (
+              <span className="font-mono text-[11.5px] text-maestro-muted">
+                No other sessions running.
+              </span>
+            ) : (
+              drivable.map((session) => {
+                const ticked = scope.some((e) => e.sessionId === session.id);
+                return (
+                  <button
+                    key={session.id}
+                    type="button"
+                    onClick={() => toggleScope(session)}
+                    aria-pressed={ticked}
+                    className={`${chipClass} ${
                       ticked
-                        ? "border-maestro-accent bg-maestro-accent/20 text-maestro-accent"
-                        : "border-maestro-border"
+                        ? "bg-maestro-accent/15 text-maestro-accent hover:bg-maestro-accent/25"
+                        : "border border-dashed border-maestro-border text-maestro-muted hover:text-maestro-text"
                     }`}
+                    title={
+                      ticked
+                        ? "In scope for this goal. Click to remove it."
+                        : "Add this session to the scope."
+                    }
                   >
-                    {ticked && <Check size={10} />}
-                  </span>
-                  <span className="truncate">{sessionLabel(session)}</span>
-                </button>
-              );
-            })
-          )}
-        </div>
+                    {ticked ? (
+                      <Check size={11} className="shrink-0" />
+                    ) : (
+                      <span aria-hidden="true">+</span>
+                    )}
+                    <span className="truncate">{sessionLabel(session)}</span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+          <p className="mt-2.5 text-[11.5px] text-maestro-muted">
+            {scope.length > 0
+              ? "The goal may only touch the ticked sessions. A proposal for anything else is blocked, not queued."
+              : "No scope set: every session is fair game. Tick the ones this goal may touch."}
+          </p>
+        </section>
 
-        <div className="flex flex-1 flex-col gap-1.5 overflow-y-auto p-3">
-          <h2 className={labelClass}>
-            {pending.length > 0
-              ? `${pending.length} proposed message${pending.length === 1 ? "" : "s"} — approve to send`
-              : "Proposal queue"}
-          </h2>
+        <section aria-label="Proposals" className="min-h-0">
+          <div className={`${labelClass} mb-2.5`}>
+            Proposals
+            {pending.length > 0 && ` · ${pending.length} waiting`}
+          </div>
           {pending.length === 0 && history.length === 0 ? (
-            <p className="rounded border border-dashed border-maestro-border px-3 py-2 text-[11px] text-maestro-muted/70">
+            <p className="rounded-[10px] border border-dashed border-maestro-border px-4 py-3 text-[12px] text-maestro-muted">
               {sessionId === null
                 ? "Give the orchestrator a goal to begin. Everything it wants to say to your sessions lands here first."
                 : "Nothing proposed yet. It reads your sessions before it suggests anything."}
             </p>
           ) : (
             <>
-              {pending.map((proposal) => (
-                <ProposalRow
-                  key={proposal.id}
-                  proposal={proposal}
-                  targetLabel={labelFor(proposal.targetSessionId)}
-                  onDecide={(approve) => void decide(proposal.id, approve)}
-                />
-              ))}
-              {history.length > 0 && <h2 className={`${labelClass} mt-2`}>Recent</h2>}
-              {history.map((proposal) => (
-                <ProposalRow
-                  key={proposal.id}
-                  proposal={proposal}
-                  targetLabel={labelFor(proposal.targetSessionId)}
-                  onDecide={() => {}}
-                />
-              ))}
+              <ul className="flex flex-col gap-[9px]">
+                {pending.map((proposal) => (
+                  <ProposalRow
+                    key={proposal.id}
+                    proposal={proposal}
+                    targetLabel={labelFor(proposal.targetSessionId)}
+                    onDecide={(approve) => void decide(proposal.id, approve)}
+                  />
+                ))}
+              </ul>
+              {history.length > 0 && (
+                <>
+                  <div className={`${labelClass} mb-2.5 mt-4`}>Recent</div>
+                  <ul className="flex flex-col gap-[9px]">
+                    {history.map((proposal) => (
+                      <ProposalRow
+                        key={proposal.id}
+                        proposal={proposal}
+                        targetLabel={labelFor(proposal.targetSessionId)}
+                        onDecide={() => {}}
+                      />
+                    ))}
+                  </ul>
+                </>
+              )}
             </>
           )}
-        </div>
+        </section>
       </div>
     </div>
   );

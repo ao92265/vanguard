@@ -93,6 +93,13 @@ export interface BackendSessionRow {
  * @property needsInputPrompt - When status is NeedsInput, the specific question for the user.
  */
 export interface SessionConfig extends BackendSessionRow {
+  /**
+   * tmux session this work runs in, when Maestro launched it into one. Null
+   * for a session that owns its PTY directly. Closing must kill the tmux
+   * session by name: killing the PTY only detaches the client and would
+   * leave the agent running with nothing on screen showing it.
+   */
+  tmuxName?: string | null;
   status: BackendSessionStatus;
   statusMessage?: string;
   needsInputPrompt?: string;

@@ -78,7 +78,7 @@ export function MarketplaceSourcesPanel() {
               type="button"
               onClick={handleAddSource}
               disabled={!newName.trim() || !newUrl.trim()}
-              className="rounded bg-maestro-accent px-2 py-1 text-[10px] text-white hover:bg-maestro-accent/80 disabled:opacity-50"
+              className="rounded bg-maestro-accent px-2 py-1 text-[10px] text-maestro-on-accent hover:bg-maestro-accent/80 disabled:opacity-50"
             >
               Add
             </button>
@@ -94,7 +94,7 @@ export function MarketplaceSourcesPanel() {
             <button
               type="button"
               onClick={() => setShowAddForm(true)}
-              className="rounded bg-maestro-accent px-3 py-1.5 text-xs text-white hover:bg-maestro-accent/80"
+              className="rounded bg-maestro-accent px-3 py-1.5 text-xs text-maestro-on-accent hover:bg-maestro-accent/80"
             >
               Add Source
             </button>

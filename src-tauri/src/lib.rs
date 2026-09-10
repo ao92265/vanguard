@@ -1153,6 +1153,8 @@ pub fn run() {
             commands::terminal::check_cli_available,
             commands::terminal::get_backend_info,
             commands::terminal::save_pasted_image,
+            commands::terminal::set_image_target,
+            commands::terminal::get_image_target,
             // Git commands
             commands::git::git_branches,
             commands::git::git_current_branch,
@@ -1264,6 +1266,9 @@ pub fn run() {
             commands::claudemd::read_context_doc,
             commands::claudemd::write_context_doc,
             // Terminal sessions Maestro did not start (iTerm panes)
+            commands::tmux_sessions::list_tmux_sessions,
+            commands::tmux_sessions::kill_tmux_session,
+            commands::tmux_sessions::tmux_available,
             commands::external_sessions::list_external_sessions,
             commands::external_sessions::focus_external_session,
             commands::external_sessions::close_external_session,

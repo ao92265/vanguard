@@ -113,7 +113,7 @@ export function MarketplacePluginCard({ plugin, onInstall }: MarketplacePluginCa
             type="button"
             onClick={onInstall}
             disabled={isInstalling}
-            className="flex flex-1 items-center justify-center gap-1 rounded bg-maestro-accent py-1.5 text-xs text-white transition-colors hover:bg-maestro-accent/80 disabled:opacity-50"
+            className="flex flex-1 items-center justify-center gap-1 rounded bg-maestro-accent py-1.5 text-xs text-maestro-on-accent transition-colors hover:bg-maestro-accent/80 disabled:opacity-50"
           >
             {isInstalling ? (
               <>

@@ -1,11 +1,10 @@
 import { HelpCircle, LayoutGrid, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { BoardAlertBand } from "@/components/board/BoardAlertBand";
 import { BoardCard, boardCardKey, cardAction } from "@/components/board/BoardCard";
-import { BoardColdStart } from "@/components/board/BoardColdStart";
 import { BoardColumn } from "@/components/board/BoardColumn";
 import { BoardPeek } from "@/components/board/BoardPeek";
+import { WorkLedger } from "@/components/board/WorkLedger";
 import { badgeBaseClass, SESSION_STATUS_BADGES } from "@/components/session/agentPresentation";
 import type { BandTab, HandoffInfo } from "@/lib/bands";
 import {
@@ -14,9 +13,8 @@ import {
   type BoardCardItem,
   type BoardColumnKey,
   type BoardReviewRequests,
-  blockedOldestFirst,
-  isColdStart,
 } from "@/lib/board";
+import { buildLedgerEntries, groupLedgerEntries, ledgerTotals } from "@/lib/workLedger";
 import { useActStore } from "@/stores/useActStore";
 import { useBandStore } from "@/stores/useBandStore";
 import { useGitHubWatchdogStore } from "@/stores/useGitHubWatchdogStore";
@@ -36,6 +34,11 @@ import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
  * Cards are deliberately not draggable. A card's stage is derived from live
  * state, so a drag would either do nothing or move a card to a stage the work
  * is not in, and both are dead controls in the pivot's terms.
+ *
+ * Two faces, one layer. `mode="board"` is the stage view above; `mode="ledger"`
+ * hands the same sources to [`WorkLedger`], which reads them as history rather
+ * than as stages. They share this component because they share the polling and
+ * the staleness reporting, not because they render anything alike.
  */
 
 interface BoardViewProps {
@@ -61,15 +64,38 @@ interface BoardViewProps {
    * work (review finding 1 on 4f3f27a).
    */
   overlayOpen: boolean;
+  /**
+   * Which face of the work sources this layer shows. The rail's Board and
+   * Ledger entries pick it; defaults to the Board so every existing caller
+   * and test keeps the view it had.
+   */
+  mode?: "board" | "ledger";
 }
 
-const COLUMN_META: Record<BoardColumnKey, { title: string; emptyText: string }> = {
-  suggested: { title: "Suggested", emptyText: "No handoffs are waiting on disk." },
-  planning: { title: "Planning", emptyText: "Nothing is being planned." },
-  building: { title: "Building", emptyText: "Nothing is being built." },
-  checking: { title: "Checking", emptyText: "Nothing is being checked." },
-  review: { title: "Review", emptyText: "Nothing is waiting on review." },
-  done: { title: "Done", emptyText: "Nothing has finished since you looked." },
+/** Per stage: its header, its empty sentence, and its dot colour (design 1b). */
+const COLUMN_META: Record<BoardColumnKey, { title: string; emptyText: string; dot: string }> = {
+  suggested: {
+    title: "Suggested",
+    emptyText: "No handoffs are waiting on disk.",
+    dot: "bg-maestro-muted",
+  },
+  planning: {
+    title: "Planning",
+    emptyText: "Nothing is being planned.",
+    dot: "bg-maestro-purple",
+  },
+  building: { title: "Building", emptyText: "Nothing is being built.", dot: "bg-maestro-blue" },
+  checking: { title: "Checking", emptyText: "Nothing is being checked.", dot: "bg-maestro-yellow" },
+  review: {
+    title: "Review",
+    emptyText: "Nothing is waiting on review.",
+    dot: "bg-maestro-accent",
+  },
+  done: {
+    title: "Done",
+    emptyText: "Nothing has finished since you looked.",
+    dot: "bg-maestro-green",
+  },
 };
 
 /** Fleet strip display order: what needs you first, calmest last (Home's order). */
@@ -94,6 +120,7 @@ export function BoardView({
   onShowGrid,
   onOpenProject,
   overlayOpen,
+  mode = "board",
 }: BoardViewProps) {
   const sessions = useSessionStore(useShallow((s) => s.sessions));
   const tabs = useWorkspaceStore(useShallow((s) => s.tabs));
@@ -106,6 +133,7 @@ export function BoardView({
     isRefreshing,
     watermarkMs,
     externallyActiveDirs,
+    tmuxSessions,
     refresh,
     markSeen,
   } = useBandStore();
@@ -114,6 +142,8 @@ export function BoardView({
   const actError = useActStore((s) => s.error);
   const watchdogProjects = useGitHubWatchdogStore(useShallow((s) => s.projects));
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [stageFilter, setStageFilter] = useState<BoardColumnKey | "all">("all");
+  const ledgerRef = useRef<HTMLDivElement>(null);
   const [peekItem, setPeekItem] = useState<Extract<BoardCardItem, { kind: "external" }> | null>(
     null,
   );
@@ -159,6 +189,7 @@ export function BoardView({
         reviewRequests,
         watermarkMs,
         activeDirs: externallyActiveDirs,
+        tmuxSessions,
       }),
     [
       sessions,
@@ -170,8 +201,39 @@ export function BoardView({
       reviewRequests,
       watermarkMs,
       externallyActiveDirs,
+      tmuxSessions,
     ],
   );
+
+  /* The ledger reads the same three polls the board does, as history rather
+     than as stages: merged pull requests, Factory runs, and the handoff files
+     on disk. Nothing new is fetched and nothing new is written. */
+  const ledgerGroups = useMemo(
+    () =>
+      groupLedgerEntries(
+        buildLedgerEntries({
+          mergedPrs: repoPrs.flatMap((repo) =>
+            repo.merged.map((pr) => ({
+              repoPath: repo.repoPath,
+              projectName: repo.projectName,
+              pr,
+            })),
+          ),
+          runs,
+          handoffs,
+        }),
+      ),
+    [repoPrs, runs, handoffs],
+  );
+  const ledgerCounts = useMemo(() => ledgerTotals(ledgerGroups), [ledgerGroups]);
+  /* The projects half is dropped rather than printed as zero when no record
+     named one: "across 0 projects" reads as a finding about the projects,
+     when it is a fact about the records. */
+  const ledgerRecords = ledgerCounts.merged + ledgerCounts.runs + ledgerCounts.handoffs;
+  const ledgerSummary =
+    ledgerCounts.projects === 0
+      ? `${ledgerRecords} record${ledgerRecords === 1 ? "" : "s"}`
+      : `${ledgerRecords} record${ledgerRecords === 1 ? "" : "s"} across ${ledgerCounts.projects} project${ledgerCounts.projects === 1 ? "" : "s"}`;
 
   /* Reading order for j/k: column by column, left to right, top to bottom.
      Only cards Enter can act on: parking the selection on a card that
@@ -179,8 +241,10 @@ export function BoardView({
      explanation is hover-only (review finding 4 on 4f3f27a). */
   const flat = useMemo(
     () =>
-      BOARD_COLUMN_ORDER.flatMap((key) => columns[key]).filter((item) => cardAction(item).enabled),
-    [columns],
+      BOARD_COLUMN_ORDER.filter((key) => stageFilter === "all" || key === stageFilter)
+        .flatMap((key) => columns[key])
+        .filter((item) => cardAction(item).enabled),
+    [columns, stageFilter],
   );
 
   const activate = useCallback(
@@ -217,6 +281,18 @@ export function BoardView({
     }
   }, [flat, selectedKey]);
 
+  const focusSelectedCard = useCallback(() => {
+    const selected = ledgerRef.current?.querySelector<HTMLButtonElement>(
+      'button[data-selected="true"]',
+    );
+    selected?.focus({ preventScroll: true });
+    selected?.scrollIntoView?.({ block: "nearest" });
+  }, []);
+
+  useEffect(() => {
+    if (selectedKey && !overlayOpen && !peekItem && mode === "board") focusSelectedCard();
+  }, [selectedKey, overlayOpen, peekItem, focusSelectedCard, mode]);
+
   /* Same for the peek: when its directory stops being live outside (the
      poll dropped it, or the session ended), a panel still saying "working
      outside Maestro" would be asserting a present tense nobody verified. */
@@ -236,6 +312,9 @@ export function BoardView({
          same early return for the same reason). Same guard while a z-50
          overlay covers the board: these keys would act on hidden cards. */
       if (overlayOpen) return;
+      /* j/k/Enter walk board cards. The ledger has none, so in that mode the
+         keys must go dead rather than move a selection nobody can see. */
+      if (mode !== "board") return;
       if (useTourStore.getState().isOpen) return;
       /* The peek is modal over the board: its own focus trap owns Escape
          and Tab; everything here goes dead so j/k/Enter cannot act on the
@@ -244,22 +323,29 @@ export function BoardView({
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
       if (
-        target &&
-        (target.isContentEditable || /^(input|textarea|select)$/i.test(target.tagName))
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          target.closest("input, textarea, select") ||
+          (event.key === "Enter" && target.closest("button, a, summary, [role=tab]")))
       ) {
         return;
       }
       if (flat.length === 0) return;
 
       const at = flat.findIndex((item) => boardCardKey(item) === selectedKey);
-      if (event.key === "j") {
+      if (event.key === "j" || event.key === "k") {
         event.preventDefault();
-        setSelectedKey(boardCardKey(flat[at < 0 ? 0 : (at + 1) % flat.length]));
-      } else if (event.key === "k") {
-        event.preventDefault();
-        setSelectedKey(
-          boardCardKey(flat[at < 0 ? flat.length - 1 : (at - 1 + flat.length) % flat.length]),
-        );
+        const next =
+          event.key === "j"
+            ? at < 0
+              ? 0
+              : (at + 1) % flat.length
+            : at < 0
+              ? flat.length - 1
+              : (at - 1 + flat.length) % flat.length;
+        const key = boardCardKey(flat[next]);
+        setSelectedKey(key);
+        if (key === selectedKey) focusSelectedCard();
       } else if (event.key === "Enter" && at >= 0) {
         event.preventDefault();
         activate(flat[at]);
@@ -267,7 +353,7 @@ export function BoardView({
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [flat, selectedKey, activate, overlayOpen, peekItem]);
+  }, [flat, selectedKey, activate, overlayOpen, peekItem, focusSelectedCard, mode]);
 
   /* A partially failed PR poll must not read as "nothing in review": naming
      the repos that failed is the difference between stale and wrong. */
@@ -280,23 +366,13 @@ export function BoardView({
           .join(", ")}`
       : null);
 
-  /* Any poll that did not come back. Empty lanes mean "we do not know", not
-     "nothing is happening", so the cold start panel holds its tongue. */
-  const pollFailing = Boolean(handoffsError || processesError || actError || prsStale);
-
   function staleFor(key: BoardColumnKey): string | null {
     /* A failed process scan empties the live outside-Maestro cards AND
        drops their handoffs back into Suggested with a live Launch action;
        both columns say so, since launching a second agent onto a directory
        already being driven is the harmful direction. */
     if (key === "suggested") return handoffsError ?? processesError;
-    if (key === "building") return processesError ?? actError;
-    /* A failed FIRST ACT poll leaves `runs` empty rather than stale, because
-       the store only preserves data it already had. Without this the three
-       lanes ACT feeds go quiet, the cold start panel reads the quiet as an
-       idle machine, and the board states "Nothing is running." on the
-       strength of a request that never came back. */
-    if (key === "planning" || key === "checking") return actError;
+    if (key === "building") return processesError;
     if (key === "review" || key === "done") return prsStale;
     return null;
   }
@@ -306,14 +382,20 @@ export function BoardView({
     const activeOutside = externallyActiveDirs.size;
     if (columns.moreHandoffs === 0 && activeOutside === 0) return undefined;
     return (
-      <span className="flex shrink-0 items-center gap-2 text-[10px] text-maestro-muted/70">
+      <span className="flex min-w-0 items-center gap-2 overflow-hidden text-[10px] text-maestro-muted/70">
         {columns.moreHandoffs > 0 && (
-          <span title="Older handoffs on disk, one per directory, hidden to keep the column short">
+          <span
+            className="truncate"
+            title="Older handoffs on disk, one per directory, hidden to keep the column short"
+          >
             +{columns.moreHandoffs} more on disk
           </span>
         )}
         {activeOutside > 0 && (
-          <span title="Directories with a claude process already running outside Vanguard, so their handoffs are not waiting for anyone">
+          <span
+            className="truncate"
+            title="Directories with a claude process already running outside Vanguard, so their handoffs are not waiting for anyone"
+          >
             {activeOutside} active outside Vanguard
           </span>
         )}
@@ -321,12 +403,36 @@ export function BoardView({
     );
   }
 
+  const warnings = [
+    ...new Set([handoffsError, prsStale, processesError, actError].filter(Boolean)),
+  ];
+  const visibleStages = BOARD_COLUMN_ORDER.filter((key) =>
+    stageFilter === "all"
+      ? columns[key].length > 0 || staleFor(key) || noteFor(key)
+      : key === stageFilter,
+  );
+  const total = BOARD_COLUMN_ORDER.reduce((sum, key) => sum + columns[key].length, 0);
+
   return (
     /* z-45: above the zoomed grid pane (z-40) and below the Home/Factory/
        Landscape/Workflows overlays (z-50), which therefore keep stacking on
        top of the Board with no change to the overlay-exclusivity rules. */
     <div className="absolute inset-0 z-[45] flex flex-col bg-maestro-bg">
-      <div className="flex h-9 shrink-0 items-center gap-1.5 border-b border-maestro-border px-3">
+      {/* The reference gives the two faces different gutters (30px on Board,
+          34px on Ledger) because there they are separate screens with their
+          own headers. One header serves both here, so it follows the face it
+          is titling rather than leaving the title 4px off its own body. */}
+      <div
+        className={`flex shrink-0 flex-wrap items-baseline gap-3 pb-[18px] pt-[26px] ${
+          mode === "ledger" ? "px-[34px]" : "px-[30px]"
+        }`}
+      >
+        <h1 className="font-mono text-[13px] font-semibold uppercase tracking-[0.09em] text-maestro-muted">
+          {mode === "ledger" ? "Ledger" : "Board"}
+        </h1>
+        <p className="font-mono text-[12px] text-maestro-muted">
+          {mode === "ledger" ? ledgerSummary : `${total} piece${total === 1 ? "" : "s"} of work`}
+        </p>
         {actError && (
           <span
             className={`${badgeBaseClass} bg-maestro-yellow/15 text-maestro-yellow`}
@@ -339,7 +445,7 @@ export function BoardView({
         <button
           type="button"
           onClick={markSeen}
-          className="shrink-0 rounded px-1.5 py-0.5 text-[11px] text-maestro-muted transition-colors hover:bg-maestro-elevated hover:text-maestro-text"
+          className="shrink-0 rounded border border-maestro-border px-1.5 py-0.5 text-[10px] text-maestro-muted transition-colors hover:text-maestro-text"
           title="Merged pull requests and finished runs up to now stop counting as news"
         >
           Mark seen
@@ -366,69 +472,107 @@ export function BoardView({
         <button
           type="button"
           onClick={onShowGrid}
-          className="flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-[11px] text-maestro-muted transition-colors hover:bg-maestro-elevated hover:text-maestro-text"
+          className="flex shrink-0 items-center gap-1.5 rounded-[7px] border border-maestro-border px-[13px] py-[5px] text-[12px] font-medium text-maestro-muted transition-colors hover:text-maestro-text"
           aria-label="Grid view"
           title="Show the terminal grid"
         >
-          <LayoutGrid size={12} /> Grid
+          <LayoutGrid size={12} /> Show the terminals instead
         </button>
       </div>
 
-      {/* What is waiting on you, before where everything else is. The board
-          under it keeps its shape: this adds a band, it does not take a lane. */}
-      <BoardAlertBand blocked={blockedOldestFirst(columns)} onActivate={activate} />
-
-      {/* Six empty lanes say nothing is happening but not why. This says both,
-          and offers the handoffs as the thing to pick up. It sits above the
-          lanes, never instead of them, so a column emptied by a failed poll
-          still gets to show its STALE badge.
-
-          It stays away entirely while any poll is failing. "Nothing is
-          running" is a positive claim about the machine, and a lane that is
-          empty because the request errored is not evidence for it: that is
-          silence being read as an answer. A STALE badge on its own lane is
-          the honest thing to show instead. */}
-      {isColdStart(columns) && !pollFailing && (
-        <BoardColdStart
-          handoffs={columns.suggested}
-          moreHandoffs={columns.moreHandoffs}
-          onActivate={activate}
-        />
+      {mode === "board" && (
+        <nav
+          className="flex shrink-0 gap-1 overflow-x-auto border-b border-maestro-border px-[30px]"
+          aria-label="Work stages"
+        >
+          {(["all", ...BOARD_COLUMN_ORDER] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              aria-label={`Filter ${key === "all" ? "All" : COLUMN_META[key].title}`}
+              aria-pressed={stageFilter === key}
+              onClick={() => setStageFilter(key)}
+              className={`shrink-0 border-b-2 px-3 py-3 text-[12px] transition-colors ${stageFilter === key ? "border-maestro-accent text-maestro-text" : "border-transparent text-maestro-muted hover:text-maestro-text"}`}
+            >
+              {key === "all" ? "All work" : COLUMN_META[key].title}
+              <span className="ml-2 font-mono text-[10px] text-maestro-muted">
+                {key === "all" ? total : columns[key].length}
+              </span>
+            </button>
+          ))}
+        </nav>
       )}
-
-      <div className="min-h-0 flex-1 overflow-x-auto">
-        <div className="flex h-full min-w-[64rem] divide-x divide-maestro-border">
-          {BOARD_COLUMN_ORDER.map((key) => {
+      {warnings.length > 0 && (
+        <output className="border-b border-maestro-yellow/20 bg-maestro-yellow/5 px-8 py-3 text-xs text-maestro-yellow">
+          Some sources are out of date: {warnings.join(" · ")}
+        </output>
+      )}
+      {mode === "ledger" ? (
+        <WorkLedger
+          groups={ledgerGroups}
+          totals={ledgerCounts}
+          onOpenEntry={(href) => onOpenPr(href)}
+        />
+      ) : visibleStages.length === 0 ? (
+        <div className="flex flex-1 flex-col items-start justify-center px-[30px] py-16">
+          <span className="mb-4 font-mono text-[10px] uppercase tracking-[0.18em] text-maestro-muted">
+            {warnings.length ? "Incomplete snapshot" : "Clear workspace"}
+          </span>
+          <h2 className="text-2xl font-medium tracking-tight text-maestro-text">
+            {warnings.length ? "Work sources unavailable" : "No live work yet"}
+          </h2>
+          <p className="mt-3 max-w-md text-sm leading-relaxed text-maestro-muted">
+            Start a terminal in one of your projects. Sessions, handoffs and pull requests will
+            appear here as work progresses.
+          </p>
+          <button
+            type="button"
+            onClick={onShowGrid}
+            className="mt-6 rounded-md border border-maestro-border px-4 py-2 text-xs text-maestro-text hover:bg-maestro-card"
+          >
+            Open terminals
+          </button>
+        </div>
+      ) : (
+        /* Lanes side by side, the reference's board geometry. They scroll
+           horizontally rather than shrinking below a legible card width, so a
+           narrow window loses none of the six stages. */
+        <div
+          ref={ledgerRef}
+          className="grid min-h-0 min-w-0 flex-1 gap-[14px] overflow-x-auto px-[30px] pb-[26px] pt-[18px]"
+          style={{ gridTemplateColumns: `repeat(${visibleStages.length}, minmax(200px, 1fr))` }}
+        >
+          {visibleStages.map((key) => {
             const items = columns[key];
             return (
-              <div key={key} className="flex min-w-0 flex-1 flex-col overflow-y-auto px-2.5 py-3">
-                <BoardColumn
-                  title={COLUMN_META[key].title}
-                  count={items.length}
-                  emptyText={COLUMN_META[key].emptyText}
-                  stale={staleFor(key)}
-                  note={noteFor(key)}
-                >
-                  {items.map((item) => {
-                    const cardKey = boardCardKey(item);
-                    return (
-                      <BoardCard
-                        key={cardKey}
-                        item={item}
-                        selected={cardKey === selectedKey}
-                        onActivate={() => {
-                          setSelectedKey(cardKey);
-                          activate(item);
-                        }}
-                      />
-                    );
-                  })}
-                </BoardColumn>
-              </div>
+              <BoardColumn
+                key={key}
+                title={COLUMN_META[key].title}
+                count={items.length}
+                emptyText={COLUMN_META[key].emptyText}
+                dotClass={COLUMN_META[key].dot}
+                stale={staleFor(key)}
+                note={noteFor(key)}
+              >
+                {items.map((item) => {
+                  const cardKey = boardCardKey(item);
+                  return (
+                    <BoardCard
+                      key={cardKey}
+                      item={item}
+                      selected={cardKey === selectedKey}
+                      onActivate={() => {
+                        setSelectedKey(cardKey);
+                        activate(item);
+                      }}
+                    />
+                  );
+                })}
+              </BoardColumn>
             );
           })}
         </div>
-      </div>
+      )}
 
       {/* Fleet strip: plain counts, not chips that look clickable. Idle
           sessions get no card anywhere on the board, so this strip is the
@@ -443,7 +587,7 @@ export function BoardView({
           return (
             <span
               key={status}
-              className={`flex shrink-0 items-center gap-1 px-0.5 text-[10px] text-maestro-faint ${
+              className={`flex shrink-0 items-center gap-1 rounded border border-maestro-border px-1.5 py-0.5 text-[10px] text-maestro-muted ${
                 count === 0 ? "opacity-40" : ""
               }`}
               title={`${badge.label}: ${count} session${count === 1 ? "" : "s"}`}
@@ -455,7 +599,7 @@ export function BoardView({
         })}
         <div className="flex-1" />
         <span className="shrink-0 text-[10px] text-maestro-muted/70">
-          j and k move, Enter opens
+          {mode === "ledger" ? "Pick a day to expand it" : "j and k move, Enter opens"}
         </span>
       </div>
 

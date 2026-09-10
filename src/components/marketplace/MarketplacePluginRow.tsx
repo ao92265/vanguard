@@ -98,7 +98,7 @@ export function MarketplacePluginRow({ plugin, onInstall, onSelect }: Marketplac
               onInstall();
             }}
             disabled={isInstalling}
-            className="rounded bg-maestro-accent px-3 py-1 text-xs text-white transition-colors hover:bg-maestro-accent/80 disabled:opacity-50"
+            className="rounded bg-maestro-accent px-3 py-1 text-xs text-maestro-on-accent transition-colors hover:bg-maestro-accent/80 disabled:opacity-50"
           >
             {isInstalling ? (
               <span className="flex items-center gap-1">

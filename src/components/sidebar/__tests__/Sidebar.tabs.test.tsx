@@ -169,6 +169,15 @@ describe("Sidebar tab bar", () => {
     useSessionStore.setState({ sessions: [], samuraiSchedule: [] });
   });
 
+  it("removes collapsed sidebar controls from the accessibility tree", () => {
+    const { rerender } = render(<ControlledSidebar />);
+    expect(screen.getByRole("navigation", { name: "Sidebar" })).toBeInTheDocument();
+    rerender(<ControlledSidebar collapsed />);
+    expect(screen.queryByRole("navigation", { name: "Sidebar" })).not.toBeInTheDocument();
+    rerender(<ControlledSidebar collapsed={false} />);
+    expect(screen.getByRole("navigation", { name: "Sidebar" })).toBeInTheDocument();
+  });
+
   it("renders the three tabs with General active by default", () => {
     render(<ControlledSidebar />);
     for (const label of ["General", "History", "Settings"]) {

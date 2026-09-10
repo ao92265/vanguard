@@ -117,7 +117,7 @@ export function MarketplaceBrowser({ onClose, currentProjectPath }: MarketplaceB
                   onClick={() => setViewMode("grid")}
                   className={`rounded-l p-1.5 ${
                     viewMode === "grid"
-                      ? "bg-maestro-accent text-white"
+                      ? "bg-maestro-accent text-maestro-on-accent"
                       : "text-maestro-muted hover:bg-maestro-surface hover:text-maestro-text"
                   }`}
                   title="Grid view"
@@ -129,7 +129,7 @@ export function MarketplaceBrowser({ onClose, currentProjectPath }: MarketplaceB
                   onClick={() => setViewMode("list")}
                   className={`rounded-r p-1.5 ${
                     viewMode === "list"
-                      ? "bg-maestro-accent text-white"
+                      ? "bg-maestro-accent text-maestro-on-accent"
                       : "text-maestro-muted hover:bg-maestro-surface hover:text-maestro-text"
                   }`}
                   title="List view"
@@ -195,7 +195,7 @@ export function MarketplaceBrowser({ onClose, currentProjectPath }: MarketplaceB
                     <button
                       type="button"
                       onClick={() => refreshMarketplaces()}
-                      className="rounded bg-maestro-accent px-4 py-2 text-xs text-white hover:bg-maestro-accent/80"
+                      className="rounded bg-maestro-accent px-4 py-2 text-xs text-maestro-on-accent hover:bg-maestro-accent/80"
                     >
                       Try Again
                     </button>

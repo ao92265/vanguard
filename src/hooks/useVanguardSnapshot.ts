@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect } from "react";
 import { assembleBands, type BandItem } from "@/lib/bands";
+import { assembleBoard } from "@/lib/board";
 import { useActStore } from "@/stores/useActStore";
 import { useBandStore } from "@/stores/useBandStore";
 import { useSessionStore } from "@/stores/useSessionStore";
@@ -78,10 +79,31 @@ export function buildSnapshot(): Record<string, unknown> {
        in-app bands stopped wearing in WP2. */
     activeDirs: band.externallyActiveDirs,
   });
+  /* The Building column's own total, published so nothing outside the app has
+     to count the same population again. The terminal status line used to run
+     its own tally of live sessions and showed a smaller number than the board
+     did, which reads as one of them being broken rather than as two different
+     questions. One number, computed here, is the fix. */
+  const board = assembleBoard({
+    sessions,
+    tabs,
+    handoffs: band.handoffs,
+    repoPrs: band.repoPrs,
+    runs: act.runs,
+    gatedRuns: act.gatedRuns,
+    watermarkMs: band.watermarkMs,
+    activeDirs: band.externallyActiveDirs,
+    tmuxSessions: band.tmuxSessions,
+  });
+
   return {
     writtenAt: Date.now(),
     counts: bands.counts,
+    buildingCount: board.building.length,
     blocked: bands.blocked.map(rowOf),
+    /* Separate from `blocked` so the Telegram ping counts people waiting, not
+       files on disk. The digest reads `.blocked` and now says what it means. */
+    parked: bands.parked.map(rowOf),
     landed: bands.landed.map(rowOf),
     runningCount: bands.running.length,
     moreHandoffs: bands.moreHandoffs,

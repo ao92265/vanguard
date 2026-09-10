@@ -111,6 +111,24 @@ describe("assembleBands", () => {
     }
   });
 
+  it("does not count a parked handoff as blocked on you", () => {
+    /* A handoff file is work you can pick up, not somebody waiting. Counting
+       it as blocked made the inbox read as five people needing an answer when
+       nobody was asking. */
+    const bands = assembleBands({
+      sessions: [session(1, "NeedsInput", "/repo/asking")],
+      tabs: TABS,
+      handoffs: [handoff("parked-one"), handoff("parked-two", { path: "/repo/other" })],
+      repoPrs: [],
+      watermarkMs: 0,
+      nowMs: Date.parse("2026-08-19T10:00:00Z"),
+    });
+
+    expect(bands.blocked.every((i) => i.kind !== "handoff")).toBe(true);
+    expect(bands.blocked).toHaveLength(1);
+    expect(bands.parked).toHaveLength(2);
+  });
+
   it("shows parked handoffs but drops stale, orphaned and session-covered ones", () => {
     const bands = assembleBands({
       sessions: [session(1, "Working", "/repo/covered")],
@@ -125,7 +143,7 @@ describe("assembleBands", () => {
       watermarkMs: 0,
       nowMs: Date.parse("2026-08-19T10:00:00Z"),
     });
-    const slugs = bands.blocked
+    const slugs = bands.parked
       .filter((i) => i.kind === "handoff")
       .map((i) => (i.kind === "handoff" ? i.handoff.slug : ""));
     expect(slugs).toEqual(["fresh"]);
@@ -141,7 +159,7 @@ describe("assembleBands", () => {
       activeDirs: new Set(["/repo/nested/subdir", "/repo/exact"]),
       nowMs: Date.parse("2026-08-19T10:00:00Z"),
     });
-    const slugs = bands.blocked
+    const slugs = bands.parked
       .filter((i) => i.kind === "handoff")
       .map((i) => (i.kind === "handoff" ? i.handoff.slug : ""));
     expect(slugs).toEqual([]);
@@ -157,7 +175,7 @@ describe("assembleBands", () => {
       activeDirs: new Set(["/repo/unrelated"]),
       nowMs: Date.parse("2026-08-19T10:00:00Z"),
     });
-    const slugs = bands.blocked
+    const slugs = bands.parked
       .filter((i) => i.kind === "handoff")
       .map((i) => (i.kind === "handoff" ? i.handoff.slug : ""));
     expect(slugs).toEqual(["fresh"]);
@@ -173,7 +191,7 @@ describe("assembleBands", () => {
       activeDirs: new Set([null as unknown as string, ""]),
       nowMs: Date.parse("2026-08-19T10:00:00Z"),
     });
-    const slugs = bands.blocked
+    const slugs = bands.parked
       .filter((i) => i.kind === "handoff")
       .map((i) => (i.kind === "handoff" ? i.handoff.slug : ""));
     expect(slugs).toEqual(["fresh"]);
@@ -206,7 +224,7 @@ describe("assembleBands", () => {
       watermarkMs: 0,
       nowMs: Date.parse("2026-08-19T10:00:00Z"),
     });
-    const slugs = bands.blocked
+    const slugs = bands.parked
       .filter((i) => i.kind === "handoff")
       .map((i) => (i.kind === "handoff" ? i.handoff.slug : ""));
     expect(slugs).toEqual(["asking", "waiting"]);
@@ -221,7 +239,7 @@ describe("assembleBands", () => {
       watermarkMs: 0,
       nowMs: Date.parse("2026-08-19T10:00:00Z"),
     });
-    const slugs = bands.blocked
+    const slugs = bands.parked
       .filter((i) => i.kind === "handoff")
       .map((i) => (i.kind === "handoff" ? i.handoff.slug : ""));
     expect(slugs).toEqual(["recent"]);
@@ -236,7 +254,7 @@ describe("assembleBands", () => {
       watermarkMs: 0,
       nowMs: Date.parse("2026-08-19T10:00:00Z"),
     });
-    expect(bands.blocked.filter((i) => i.kind === "handoff")).toHaveLength(5);
+    expect(bands.parked.filter((i) => i.kind === "handoff")).toHaveLength(5);
     expect(bands.moreHandoffs).toBe(2);
   });
 
@@ -287,7 +305,7 @@ describe("assembleBands", () => {
       watermarkMs: 0,
       nowMs: Date.parse("2026-08-19T10:00:00Z"),
     });
-    const shown = bands.blocked.filter((i) => i.kind === "handoff");
+    const shown = bands.parked.filter((i) => i.kind === "handoff");
     expect(shown.length).toBe(5);
     const slugs = shown.map((i) => (i.kind === "handoff" ? i.handoff.slug : ""));
     expect(slugs).toContain("dupe-new");
@@ -327,12 +345,13 @@ describe("assembleBands", () => {
       watermarkMs: 0,
       nowMs: Date.parse("2026-08-19T10:00:00Z"),
     });
-    expect(bands.blocked.map((i) => i.kind)).toEqual(["session", "run", "pr", "handoff"]);
+    expect(bands.blocked.map((i) => i.kind)).toEqual(["session", "run", "pr"]);
+    expect(bands.parked.map((i) => i.kind)).toEqual(["handoff"]);
     const runItem = bands.blocked[1];
     expect(runItem.kind === "run" && runItem.run.id).toBe("run-1");
   });
 
-  it("orders blocked: needs-input, then errors, then PRs, then handoffs", () => {
+  it("orders blocked: needs-input, then errors, then PRs, and parks handoffs apart", () => {
     const bands = assembleBands({
       sessions: [session(2, "Error"), session(1, "NeedsInput")],
       tabs: TABS,
@@ -348,7 +367,8 @@ describe("assembleBands", () => {
       watermarkMs: 0,
       nowMs: Date.parse("2026-08-19T10:00:00Z"),
     });
-    expect(bands.blocked.map((i) => i.kind)).toEqual(["session", "session", "pr", "handoff"]);
+    expect(bands.blocked.map((i) => i.kind)).toEqual(["session", "session", "pr"]);
+    expect(bands.parked.map((i) => i.kind)).toEqual(["handoff"]);
     const first = bands.blocked[0];
     expect(first.kind === "session" && first.session.status).toBe("NeedsInput");
   });

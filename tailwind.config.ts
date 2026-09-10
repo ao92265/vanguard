@@ -20,6 +20,9 @@ export default {
           muted: rgb("muted"),
           faint: rgb("faint"),
           accent: rgb("accent"),
+          // Ink for anything sitting ON the accent fill. White fails WCAG AA
+          // on the dark accent; this is the design system's `--onAccent`.
+          "on-accent": rgb("on-accent"),
           alarm: rgb("alarm"),
           "alarm-ground": rgb("alarm-ground"),
           brand: rgb("brand"),
@@ -32,7 +35,8 @@ export default {
         },
       },
       fontFamily: {
-        mono: ["JetBrains Mono", "Fira Code", "Cascadia Code", "monospace"],
+        sans: ["Inter", "system-ui", "sans-serif"],
+        mono: ["JetBrains Mono", "ui-monospace", "monospace"],
       },
     },
   },

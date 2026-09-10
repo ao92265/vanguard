@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { BoardCard, boardCardKey, cardAction } from "@/components/board/BoardCard";
+import { BoardCard, boardCardKey, cardAction, cardEdgeClass } from "@/components/board/BoardCard";
 import type { ActRun } from "@/lib/act";
 import type { HandoffInfo } from "@/lib/bands";
 import type { BoardCardItem } from "@/lib/board";
@@ -121,6 +121,67 @@ describe("cardAction", () => {
   });
 });
 
+describe("cardEdgeClass", () => {
+  it("gives every session status its own edge colour", () => {
+    const statuses: BackendSessionStatus[] = [
+      "Starting",
+      "Idle",
+      "Working",
+      "NeedsInput",
+      "Done",
+      "Error",
+      "Timeout",
+    ];
+    const edges = Object.fromEntries(
+      statuses.map((status) => [
+        status,
+        cardEdgeClass(sessionCard(status, "t1", { needsYou: false })),
+      ]),
+    );
+
+    expect(edges).toEqual({
+      Starting: "border-l-maestro-orange",
+      Idle: "border-l-maestro-muted",
+      Working: "border-l-maestro-blue",
+      NeedsInput: "border-l-maestro-accent",
+      Done: "border-l-maestro-green",
+      Error: "border-l-maestro-red",
+      Timeout: "border-l-maestro-red",
+    });
+  });
+
+  it("lets needs-you outrank the kind's own colour", () => {
+    expect(cardEdgeClass(sessionCard("Done", "t1", { needsYou: true }))).toBe(
+      "border-l-maestro-accent",
+    );
+    expect(cardEdgeClass(prCard("Merged", "2026-08-19T09:00:00Z", true))).toBe(
+      "border-l-maestro-accent",
+    );
+  });
+
+  it("colours the other kinds by what they are", () => {
+    expect(cardEdgeClass(handoffCard())).toBe("border-l-maestro-yellow");
+    expect(cardEdgeClass(runCard("build"))).toBe("border-l-maestro-blue");
+    expect(cardEdgeClass(prCard("Open", null, false))).toBe("border-l-maestro-blue");
+    expect(cardEdgeClass(prCard("Merged", "2026-08-19T09:00:00Z", false))).toBe(
+      "border-l-maestro-purple",
+    );
+    expect(cardEdgeClass(externalCard())).toBe("border-l-maestro-blue");
+  });
+
+  it("puts the edge on the card itself, not only in the map", () => {
+    render(
+      <BoardCard
+        item={prCard("Merged", "2026-08-19T09:00:00Z", false)}
+        selected={false}
+        onActivate={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button").className).toContain("border-l-maestro-purple");
+  });
+});
+
 describe("BoardCard", () => {
   it("shows the project, the objective and the stage", () => {
     render(<BoardCard item={sessionCard("Working", "t1")} selected={false} onActivate={vi.fn()} />);
@@ -216,59 +277,6 @@ describe("BoardCard", () => {
     expect(document.querySelector('[data-selected="true"]')).not.toBeInTheDocument();
   });
 
-  /* Quiet Deck: the stage a card is in must be readable without reading the
-     card. The stripe is a 2px left border keyed off data-stage, so a column
-     of cards shows the shape of the work before any word is parsed. */
-  it("stripes every card with the stage it is actually in", () => {
-    const cases: Array<[BoardCardItem, string]> = [
-      [sessionCard("Working", "tab-1"), "working"],
-      [sessionCard("Starting", "tab-1"), "starting"],
-      [sessionCard("Idle", "tab-1"), "idle"],
-      [sessionCard("Done", "tab-1"), "done"],
-      [sessionCard("Error", "tab-1"), "error"],
-      [sessionCard("Timeout", "tab-1"), "error"],
-      [handoffCard(), "waiting"],
-      [runCard("Building"), "working"],
-      [prCard("Review requested", null, false), "review"],
-      [prCard("Merged", "2026-01-01T00:00:00Z", false), "merged"],
-    ];
-    for (const [item, stage] of cases) {
-      const { unmount } = render(<BoardCard item={item} selected={false} onActivate={() => {}} />);
-      expect(screen.getByTestId("board-card").dataset.stage).toBe(stage);
-      unmount();
-    }
-  });
-
-  it("overrides the stage stripe on any card that needs you", () => {
-    render(
-      <BoardCard
-        item={sessionCard("NeedsInput", "tab-1")}
-        selected={false}
-        onActivate={() => {}}
-      />,
-    );
-    expect(screen.getByTestId("board-card").dataset.stage).toBe("needs");
-  });
-
-  it("spends the glow on needs-you and nothing else", () => {
-    const { unmount } = render(
-      <BoardCard item={sessionCard("Working", "tab-1")} selected={false} onActivate={() => {}} />,
-    );
-    expect(screen.getByTestId("board-card").className).not.toMatch(/shadow-\[/);
-    unmount();
-    render(
-      <BoardCard
-        item={sessionCard("NeedsInput", "tab-1")}
-        selected={false}
-        onActivate={() => {}}
-      />,
-    );
-    expect(screen.getByTestId("board-card").className).toMatch(/shadow-\[/);
-  });
-
-  /* The needs-you ground used to be a literal near-black hex, which meant the
-     one card that most has to be readable rendered as a black block on the
-     light theme. It has to come from a token so both themes get a tint. */
   /* Two background utilities on one element is not a stronger colour, it is a
      coin toss decided by which one Tailwind happens to emit last. The card
      ground has to be set exactly once, or the needs-you fill never paints. */
@@ -280,16 +288,19 @@ describe("BoardCard", () => {
         onActivate={() => {}}
       />,
     );
-    const needs = screen.getByTestId("board-card").className.match(/\bbg-maestro-[\w-]+/g) ?? [];
-    expect(needs).toEqual(["bg-maestro-alarm-ground"]);
+    const needs = screen.getByRole("button").className.match(/\bbg-maestro-[\w-]+/g) ?? [];
+    expect(needs).toEqual(["bg-maestro-accent"]);
     unmount();
     render(
       <BoardCard item={sessionCard("Working", "tab-1")} selected={false} onActivate={() => {}} />,
     );
-    const plain = screen.getByTestId("board-card").className.match(/\bbg-maestro-[\w-]+/g) ?? [];
-    expect(plain).toEqual(["bg-maestro-card"]);
+    const plain = screen.getByRole("button").className.match(/\bbg-maestro-[\w-]+/g) ?? [];
+    expect(plain).toEqual(["bg-maestro-surface"]);
   });
 
+  /* The needs-you ground used to be a literal near-black hex, which meant the
+     one card that most has to be readable rendered as a black block on the
+     light theme. It has to come from a token so both themes get a tint. */
   it("takes the needs-you ground from a token, not a literal colour", () => {
     render(
       <BoardCard
@@ -298,8 +309,8 @@ describe("BoardCard", () => {
         onActivate={() => {}}
       />,
     );
-    const cls = screen.getByTestId("board-card").className;
-    expect(cls).toMatch(/bg-maestro-alarm-ground/);
+    const cls = screen.getByRole("button").className;
+    expect(cls).toMatch(/bg-maestro-accent/);
     expect(cls).not.toMatch(/bg-\[#/);
   });
 });

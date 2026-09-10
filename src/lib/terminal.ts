@@ -8,6 +8,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { quoteShellArgument, type ShellFamily } from "@/lib/shellEscape";
+import { forgetTmuxSession, killTmuxSession, tmuxSessionFor } from "@/lib/tmux";
+import { useTmuxOrphanStore } from "@/stores/useTmuxOrphanStore";
 import type { BackendCapabilities, BackendType } from "./terminalTheme";
 
 /**
@@ -22,17 +24,39 @@ export async function spawnShell(cwd?: string, env?: Record<string, string>): Pr
   return invoke<number>("spawn_shell", { cwd: cwd ?? null, env: env ?? null });
 }
 
+/** What `save_pasted_image` did with one image. */
+export interface StagedImage {
+  /** `/tmp/maestro-image-<uuid>/image.<ext>`, or the same under the system temp dir. */
+  path: string;
+  /**
+   * The SSH destination the upload used, or null for this machine. Read from
+   * the snapshot the backend took, NOT from whatever the frontend last saw.
+   */
+  destination: string | null;
+}
+
 /**
- * Saves pasted image data to a temporary file. Returns the absolute file path.
+ * Uploads an image to the session's execution host and pastes its path without submitting.
  *
  * The bytes are passed as the IPC *message body*, not as a field of an args
  * object. Tauri only takes its raw `application/octet-stream` branch when the
  * message itself is an ArrayBuffer / view / Array; anything else is
  * `JSON.stringify`'d, which turns each image byte into ~4 characters of decimal
  * text on the main thread. The media type rides along as a request header.
+ *
+ * Resolves with what the backend actually did: the staged path it pasted into
+ * the PTY, and the destination it used. Both are generated backend-side from
+ * the target snapshot `save()` took, so they are the only honest answer a
+ * delivery UI can give about where the user's image went.
  */
-export async function savePastedImage(data: Uint8Array, mediaType: string): Promise<string> {
-  return invoke<string>("save_pasted_image", data, { headers: { "media-type": mediaType } });
+export async function savePastedImage(
+  data: Uint8Array,
+  mediaType: string,
+  sessionId: number,
+): Promise<StagedImage> {
+  return invoke<StagedImage>("save_pasted_image", data, {
+    headers: { "media-type": mediaType, "session-id": String(sessionId) },
+  });
 }
 
 /**
@@ -134,9 +158,63 @@ export async function resizePty(sessionId: number, rows: number, cols: number): 
   return invoke("resize_pty", { sessionId, rows, cols });
 }
 
-/** Terminates the backend PTY process and cleans up the session. */
+/**
+ * Terminates the backend PTY process and cleans up the session, and ends the
+ * tmux session it was launched into.
+ *
+ * The tmux half is not optional. Killing the PTY signals its process group,
+ * which under tmux is only the client: the agent would keep running inside
+ * the tmux server with nothing on screen showing it, and Stop All would
+ * report success while every agent carried on.
+ *
+ * It kills the name this run recorded at launch, never a name derived from
+ * the session id. Ids restart at 1 on every app launch while tmux sessions
+ * deliberately outlive the app, so a derived name is last night's work:
+ * closing one throwaway pane after a restart would have killed it.
+ *
+ * Every close path goes through here on purpose. Doing it at the call sites
+ * would leave whichever one nobody remembered orphaning agents.
+ */
 export async function killSession(sessionId: number): Promise<void> {
-  return invoke("kill_session", { sessionId });
+  const tmuxName = tmuxSessionFor(sessionId);
+  if (!tmuxName) return invoke("kill_session", { sessionId });
+
+  /* The agent goes first: once the PTY is gone there is no handle left, and
+     an orphan is worse than a redundant call. */
+  let tmuxFailure: unknown = null;
+  try {
+    await killTmuxSession(tmuxName);
+    forgetTmuxSession(sessionId);
+  } catch (error) {
+    tmuxFailure = error;
+  }
+
+  /* Reported before anything else can go wrong, and reported rather than
+     only thrown. Six of the seven close paths are `.catch(console.error)` and
+     then drop the row, so a throw alone reaches nobody: the agent would run
+     on, detached, with its only trace in a console he never opens. */
+  const orphanMessage = tmuxFailure
+    ? `The terminal closed, but its tmux session ${tmuxName} is still running: ${
+        tmuxFailure instanceof Error ? tmuxFailure.message : String(tmuxFailure)
+      }`
+    : null;
+  if (orphanMessage) useTmuxOrphanStore.getState().report(orphanMessage);
+
+  /* The terminal closes either way: an unkillable tmux session must not make
+     the pane unclosable too. */
+  try {
+    await invoke("kill_session", { sessionId });
+  } catch (error) {
+    /* Both halves failing must not lose the tmux half. Rejecting with the PTY
+       error alone would drop the one fact worth carrying: something is still
+       running. */
+    if (orphanMessage) throw new Error(`${orphanMessage} (closing the terminal also failed)`);
+    throw error;
+  }
+
+  /* Thrown as well as reported, so a caller that does want to react still
+     can. Stop All is the one that does. */
+  if (orphanMessage) throw new Error(orphanMessage);
 }
 
 /** AI mode variants matching the backend enum. */

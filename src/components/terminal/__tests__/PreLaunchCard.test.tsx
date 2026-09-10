@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PreLaunchCard, type SessionSlot } from "../PreLaunchCard";
 
@@ -9,55 +9,67 @@ vi.mock("@/lib/terminal", () => ({
   deleteClaudeSession: vi.fn().mockResolvedValue(undefined),
 }));
 
+const makeSlot = (overrides?: Partial<SessionSlot>): SessionSlot => ({
+  id: "slot-1",
+  mode: "Claude",
+  branch: null,
+  sessionId: null,
+  worktreePath: null,
+  worktreeWarning: null,
+  enabledMcpServers: [],
+  enabledSkills: [],
+  enabledPlugins: [],
+  ...overrides,
+});
+
+const defaultProps = {
+  slot: makeSlot(),
+  projectPath: "/tmp/test-repo",
+  branches: [
+    { name: "main", isRemote: false, isCurrent: true, hasWorktree: false },
+    { name: "develop", isRemote: false, isCurrent: false, hasWorktree: false },
+  ],
+  isLoadingBranches: false,
+  isGitRepo: true,
+  mcpServers: [],
+  skills: [],
+  plugins: [],
+  onModeChange: vi.fn(),
+  onBranchChange: vi.fn(),
+  onMcpToggle: vi.fn(),
+  onSkillToggle: vi.fn(),
+  onPluginToggle: vi.fn(),
+  onMcpSelectAll: vi.fn(),
+  onMcpUnselectAll: vi.fn(),
+  onPluginsSelectAll: vi.fn(),
+  onPluginsUnselectAll: vi.fn(),
+  onLaunch: vi.fn(),
+  onRemove: vi.fn(),
+  onResumeSessionChange: vi.fn(),
+};
+
 describe("PreLaunchCard branch creation", () => {
-  const makeSlot = (overrides?: Partial<SessionSlot>): SessionSlot => ({
-    id: "slot-1",
-    mode: "Claude",
-    branch: null,
-    sessionId: null,
-    worktreePath: null,
-    worktreeWarning: null,
-    enabledMcpServers: [],
-    enabledSkills: [],
-    enabledPlugins: [],
-    ...overrides,
-  });
-
-  const defaultProps = {
-    slot: makeSlot(),
-    projectPath: "/tmp/test-repo",
-    branches: [
-      { name: "main", isRemote: false, isCurrent: true, hasWorktree: false },
-      { name: "develop", isRemote: false, isCurrent: false, hasWorktree: false },
-    ],
-    isLoadingBranches: false,
-    isGitRepo: true,
-    mcpServers: [],
-    skills: [],
-    plugins: [],
-    onModeChange: vi.fn(),
-    onBranchChange: vi.fn(),
-    onMcpToggle: vi.fn(),
-    onSkillToggle: vi.fn(),
-    onPluginToggle: vi.fn(),
-    onMcpSelectAll: vi.fn(),
-    onMcpUnselectAll: vi.fn(),
-    onPluginsSelectAll: vi.fn(),
-    onPluginsUnselectAll: vi.fn(),
-    onLaunch: vi.fn(),
-    onRemove: vi.fn(),
-    onResumeSessionChange: vi.fn(),
-  };
-
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   /** Helper to open the branch dropdown */
+  it("keeps launch available with every setting on screen", () => {
+    render(<PreLaunchCard {...defaultProps} />);
+    expect(screen.getByText("No MCP servers configured")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Launch Session" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Launch Session" }));
+    expect(defaultProps.onLaunch).toHaveBeenCalledTimes(1);
+  });
+
   function openBranchDropdown() {
     // The branch selector button contains the display branch name ("main")
-    // and a GitBranch icon. Find and click it.
-    const branchButton = screen.getByText("main").closest("button");
+    // and a GitBranch icon. The resolves-to summary names the same branch, so
+    // take the occurrence that is inside a button.
+    const branchButton = screen
+      .getAllByText("main")
+      .map((node) => node.closest("button"))
+      .find((node): node is HTMLButtonElement => node !== null);
     if (branchButton) fireEvent.click(branchButton);
   }
 
@@ -102,7 +114,7 @@ describe("PreLaunchCard branch creation", () => {
     fireEvent.click(screen.getByTitle("Create branch without selecting"));
 
     await waitFor(() => {
-      expect(onCreateBranch).toHaveBeenCalledWith("feature/test", false);
+      expect(onCreateBranch).toHaveBeenCalledWith("feature/test", false, "/tmp/test-repo");
     });
     // onBranchChange should NOT be called by the "Create" button
     expect(defaultProps.onBranchChange).not.toHaveBeenCalled();
@@ -120,7 +132,7 @@ describe("PreLaunchCard branch creation", () => {
     fireEvent.click(screen.getByTitle("Create branch and select it"));
 
     await waitFor(() => {
-      expect(onCreateBranch).toHaveBeenCalledWith("feature/select", false);
+      expect(onCreateBranch).toHaveBeenCalledWith("feature/select", false, "/tmp/test-repo");
     });
     await waitFor(() => {
       expect(defaultProps.onBranchChange).toHaveBeenCalledWith("feature/select");
@@ -247,9 +259,13 @@ describe("PreLaunchCard AI Mode Selection", () => {
 
       openModeDropdown();
 
-      // Click on the provider - use getAllByText and click the last one (in dropdown)
-      const providerButtons = screen.getAllByText(label);
-      // The last one should be in the dropdown
+      // Click on the provider. The trigger, the dropdown option and the
+      // resolves-to summary can all carry the label; only the first two sit
+      // inside a button, and the dropdown option is the later of those.
+      const providerButtons = screen
+        .getAllByText(label)
+        .map((node) => node.closest("button"))
+        .filter((node): node is HTMLButtonElement => node !== null);
       const providerButton = providerButtons[providerButtons.length - 1];
       fireEvent.click(providerButton);
 
@@ -260,5 +276,567 @@ describe("PreLaunchCard AI Mode Selection", () => {
       // Cleanup for next iteration
       cleanup();
     }
+  });
+});
+
+describe("PreLaunchCard resolves-to panel", () => {
+  const makeSlot = (overrides?: Partial<SessionSlot>): SessionSlot => ({
+    id: "slot-1",
+    mode: "Claude",
+    branch: null,
+    customName: "",
+    worktreeMode: "project",
+    sessionId: null,
+    worktreePath: null,
+    worktreeWarning: null,
+    enabledMcpServers: [],
+    enabledSkills: [],
+    enabledPlugins: [],
+    ...overrides,
+  });
+
+  const baseProps = {
+    projectPath: "/tmp/test-repo",
+    branches: [
+      { name: "main", isRemote: false, isCurrent: true, hasWorktree: false },
+      { name: "develop", isRemote: false, isCurrent: false, hasWorktree: false },
+    ],
+    isLoadingBranches: false,
+    isGitRepo: true,
+    mcpServers: [],
+    skills: [],
+    plugins: [],
+    onCustomNameChange: vi.fn(),
+    onModeChange: vi.fn(),
+    onBranchChange: vi.fn(),
+    onWorktreeModeChange: vi.fn(),
+    onMcpToggle: vi.fn(),
+    onSkillToggle: vi.fn(),
+    onPluginToggle: vi.fn(),
+    onMcpSelectAll: vi.fn(),
+    onMcpUnselectAll: vi.fn(),
+    onPluginsSelectAll: vi.fn(),
+    onPluginsUnselectAll: vi.fn(),
+    onLaunch: vi.fn(),
+    onRemove: vi.fn(),
+    onResumeSessionChange: vi.fn(),
+  };
+
+  function summary() {
+    return screen.getByRole("region", { name: "Resolves to" });
+  }
+
+  /**
+   * The value cell of ONE resolves-to row. Assert through this, not against the
+   * whole region: the rows share vocabulary, so "resolved at launch" under
+   * `branch` is also a substring of the working-directory row's "this project's
+   * managed worktree, resolved at launch". A region-wide assertion would keep
+   * passing if the branch row stopped rendering altogether.
+   *
+   * The label and the value are sibling divs inside the row wrapper.
+   */
+  function resolveRow(label: string) {
+    const labelCell = within(summary()).getByText(label);
+    const valueCell = labelCell.nextElementSibling;
+    if (!(valueCell instanceof HTMLElement)) {
+      throw new Error(`resolves-to row "${label}" has no value cell`);
+    }
+    return valueCell;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("offers no execution host, because this app has no remote launcher", () => {
+    render(<PreLaunchCard {...baseProps} slot={makeSlot()} />);
+    expect(screen.queryByText(/execution host/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/reachable/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/ed25519/i)).not.toBeInTheDocument();
+    expect(summary()).toHaveTextContent("this machine");
+  });
+
+  it("names the directory the launch will actually use", () => {
+    render(<PreLaunchCard {...baseProps} slot={makeSlot({ worktreeMode: "project" })} />);
+    expect(summary()).toHaveTextContent("/tmp/test-repo");
+  });
+
+  it("says a new worktree does not exist yet rather than inventing its path", () => {
+    render(<PreLaunchCard {...baseProps} slot={makeSlot({ worktreeMode: "new" })} />);
+    expect(summary()).toHaveTextContent("a new worktree, created at launch");
+    expect(summary()).not.toHaveTextContent("/tmp/test-repo/");
+  });
+
+  it("prefers a recovered working directory over the project path", () => {
+    render(
+      <PreLaunchCard
+        {...baseProps}
+        slot={makeSlot({ worktreeMode: "auto", workingDirOverride: "/tmp/wt/feature" })}
+      />,
+    );
+    expect(summary()).toHaveTextContent("/tmp/wt/feature");
+  });
+
+  it("summarises the agent, branch and integrations the slot really carries", () => {
+    render(
+      <PreLaunchCard
+        {...baseProps}
+        slot={makeSlot({
+          mode: "Codex",
+          branch: "develop",
+          enabledMcpServers: ["one", "two"],
+          enabledPlugins: ["p"],
+          enabledSkills: ["s", "t", "u"],
+        })}
+      />,
+    );
+    const panel = summary();
+    expect(panel).toHaveTextContent("Codex");
+    expect(panel).toHaveTextContent("develop");
+    expect(panel).toHaveTextContent("2 MCP servers");
+    expect(panel).toHaveTextContent("1 plugin");
+    expect(panel).toHaveTextContent("3 skills");
+  });
+
+  it("names the polled current branch when the branch poll has returned one", () => {
+    // `branches` is what `list_branches` gave TerminalGrid (TerminalGrid.tsx
+    // :774), so `main` here is a real branch name off a real repo, and it is
+    // the same one the picker button above shows with its `current` badge.
+    render(<PreLaunchCard {...baseProps} slot={makeSlot()} />);
+    expect(summary()).toHaveTextContent("main");
+  });
+
+  it("says the branch is not settled yet rather than printing the picker's placeholder", () => {
+    // A freshly opened setup card: TerminalGrid holds `branches` at `[]`
+    // (TerminalGrid.tsx:498) until the fetch resolves, and the slot carries no
+    // explicit branch. "Current" is the branch picker's own label for that
+    // state; printed under `branch` in a panel whose job is to state what the
+    // launch will do, it reads as a branch named Current. The launch really
+    // does leave it open here: it passes `slot.branch ?? null` to
+    // `prepareSessionWorktree` and takes the branch back off the result
+    // (TerminalGrid.tsx:1007, :1013).
+    // Only `branches: []` is load-bearing: the row reads `resolvedBranch`, which
+    // is derived from `branches` and the slot, and never looks at the loading
+    // flag. Left at its default so the test states one condition, not two.
+    render(<PreLaunchCard {...baseProps} branches={[]} slot={makeSlot({ branch: null })} />);
+    const branchRow = resolveRow("branch");
+    expect(branchRow).not.toHaveTextContent("Current");
+    expect(branchRow).toHaveTextContent("resolved at launch");
+  });
+
+  it("does not describe a non-git folder in a multi-repo workspace as having a branch", () => {
+    // A multi-repo workspace can hold folders that are not checkouts, and they
+    // are selectable: the repo row's select button has no git guard, and the
+    // list tags them "no git". Selecting one makes TerminalGrid set `isGitRepo`
+    // false (git_branches really does reject for a non-git path) while
+    // `isMultiRepo` stays true. Guarding on `isMultiRepo` alone therefore kept
+    // the row talking about a branch for a folder that has none.
+    // `isMultiRepo` is derived, not passed: the component computes it from
+    // `workspaceType` and a non-empty `repositories`, so those are what a real
+    // multi-repo workspace hands it.
+    render(
+      <PreLaunchCard
+        {...baseProps}
+        isGitRepo={false}
+        workspaceType="multi-repo"
+        repositories={[
+          {
+            name: "notes",
+            path: "/tmp/notes",
+            isGitRepo: false,
+            currentBranch: null,
+            remoteUrl: null,
+          },
+        ]}
+        selectedRepoPath="/tmp/notes"
+        branches={[]}
+        slot={makeSlot({ branch: null })}
+      />,
+    );
+    const branchRow = resolveRow("branch");
+    expect(branchRow).toHaveTextContent("not a git repository");
+    expect(branchRow).not.toHaveTextContent("resolved at launch");
+  });
+
+  it("states image staging and retention as this backend performs them", () => {
+    render(<PreLaunchCard {...baseProps} slot={makeSlot()} />);
+    const panel = summary();
+    expect(panel).toHaveTextContent("kept for 24 hours");
+    expect(panel).toHaveTextContent("removed when the session closes");
+    expect(panel).not.toHaveTextContent("turn ends");
+  });
+
+  /* The four queued resolves-to defects. All four are the same shape: the row
+     stated a branch it had not been told, and could not have been told, yet.
+     Each names the launch-path condition it stands for, because the row's job
+     is to describe `launchSlotInner`, not to describe `branches`. */
+
+  it("does not name the previous repository's branch while a new poll is in flight", () => {
+    // Switching repository changes `repoPath`, which re-runs the branch poll.
+    // Until that poll returns, `branches` and `isGitRepo` are still the
+    // PREVIOUS repository's answers, so a row that reads them names a branch
+    // from a repository this session will not touch.
+    // `isLoadingBranches` is what says the answers are in flight, and it is
+    // already passed to this component; only this row never read it.
+    render(
+      <PreLaunchCard
+        {...baseProps}
+        isLoadingBranches={true}
+        branches={[{ name: "main", isRemote: false, isCurrent: true, hasWorktree: false }]}
+        slot={makeSlot({ branch: null })}
+      />,
+    );
+    const branchRow = resolveRow("branch");
+    expect(branchRow).not.toHaveTextContent("main");
+    expect(branchRow).toHaveTextContent("resolved at launch");
+  });
+
+  it("does not carry the previous repository's git answer into a repository being polled", () => {
+    // The mirror of the case above, and the one that shows the stale flag
+    // rather than the stale list: the previous selection was a plain folder,
+    // so `isGitRepo` is false, and the newly selected repository is a real
+    // checkout whose poll has not returned. Printing "not a git repository"
+    // here is a claim about the previous folder.
+    render(
+      <PreLaunchCard
+        {...baseProps}
+        isGitRepo={false}
+        isLoadingBranches={true}
+        branches={[]}
+        slot={makeSlot({ branch: null })}
+      />,
+    );
+    const branchRow = resolveRow("branch");
+    expect(branchRow).not.toHaveTextContent("not a git repository");
+    expect(branchRow).toHaveTextContent("resolved at launch");
+  });
+
+  it("names the local branch a remote-only choice really lands on", () => {
+    // The picker offers remote-only refs. Choosing one passes `origin/x` to
+    // `prepareSessionWorktree`, and `resolve_local_branch_name`
+    // (src-tauri/src/commands/worktree.rs) strips the first segment before the
+    // session is created, so the session lands on `x`. The picker button is
+    // right to echo the choice; this row states where the launch lands.
+    render(
+      <PreLaunchCard
+        {...baseProps}
+        branches={[
+          { name: "main", isRemote: false, isCurrent: true, hasWorktree: false },
+          { name: "origin/feature-x", isRemote: true, isCurrent: false, hasWorktree: false },
+        ]}
+        slot={makeSlot({ branch: "origin/feature-x", worktreeMode: "new" })}
+      />,
+    );
+    expect(resolveRow("branch")).toHaveTextContent("feature-x");
+    expect(resolveRow("branch")).not.toHaveTextContent("origin/feature-x");
+  });
+
+  it("leaves a local branch that contains a slash alone", () => {
+    // The guard on the case above. `resolve_local_branch_name` strips the
+    // first segment ONLY when the name is not a local branch, so `feature/foo`
+    // survives whole. Stripping it here would print `foo`, a branch that does
+    // not exist.
+    render(
+      <PreLaunchCard
+        {...baseProps}
+        branches={[
+          { name: "main", isRemote: false, isCurrent: true, hasWorktree: false },
+          { name: "feature/foo", isRemote: false, isCurrent: false, hasWorktree: false },
+        ]}
+        slot={makeSlot({ branch: "feature/foo", worktreeMode: "new" })}
+      />,
+    );
+    expect(resolveRow("branch")).toHaveTextContent("feature/foo");
+  });
+
+  it("does not promise the current branch when auto mode will reuse whatever worktree it finds", () => {
+    // With no explicit choice and `worktreeMode: "auto"`, the backend walks the
+    // managed worktrees and returns the FIRST one's branch, reaching HEAD only
+    // when there is none (prepare_worktree_inner, worktree.rs). So the polled
+    // current branch is not where this launch lands, and the row that names it
+    // is guessing. The working-directory row already says the worktree is
+    // resolved at launch; the branch is resolved with it.
+    render(
+      <PreLaunchCard {...baseProps} slot={makeSlot({ branch: null, worktreeMode: "auto" })} />,
+    );
+    const branchRow = resolveRow("branch");
+    expect(branchRow).not.toHaveTextContent("main");
+    expect(branchRow).toHaveTextContent("resolved at launch");
+  });
+
+  it("still names the current branch when the launch really will use it", () => {
+    // The guard on the case above: `worktreeMode: "project"` never calls
+    // `prepareSessionWorktree` at all (launchSlotInner skips it), so the
+    // session runs in the project directory on the branch the poll returned.
+    // Naming it there is a statement, not a guess.
+    render(
+      <PreLaunchCard {...baseProps} slot={makeSlot({ branch: null, worktreeMode: "project" })} />,
+    );
+    expect(resolveRow("branch")).toHaveTextContent("main");
+  });
+
+  it("names the current branch for a brand new worktree, which is cut from HEAD", () => {
+    // The other guard: `worktreeMode: "new"` passes force_new, which skips the
+    // reuse walk entirely and detects HEAD. The current branch is the answer.
+    render(<PreLaunchCard {...baseProps} slot={makeSlot({ branch: null, worktreeMode: "new" })} />);
+    expect(resolveRow("branch")).toHaveTextContent("main");
+  });
+});
+
+/*
+ * Design 1b: the pane is a project column, a settings column and a
+ * full-width resolves-to strip, with nothing hidden behind a disclosure.
+ */
+describe("PreLaunchCard layout (design 1b)", () => {
+  const repos = [
+    {
+      path: "/tmp/api",
+      name: "api",
+      isGitRepo: true,
+      currentBranch: "main",
+      remoteUrl: null,
+    },
+    {
+      path: "/tmp/web",
+      name: "web",
+      isGitRepo: true,
+      currentBranch: "release",
+      remoteUrl: null,
+    },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("states the checkout's own branch, not the branch this session will switch to", () => {
+    /* The picked branch belongs to the session, and can even be a name that
+       does not exist yet. Under "Project" a reader takes the value for the
+       repository's own state, so it has to be HEAD. */
+    render(<PreLaunchCard {...defaultProps} slot={makeSlot({ branch: "develop" })} />);
+
+    const project = within(screen.getByRole("region", { name: "Project" }));
+    expect(project.getByText("main")).toBeVisible();
+    expect(project.queryByText("develop")).not.toBeInTheDocument();
+  });
+
+  it("names the one project instead of offering a list of one", () => {
+    render(<PreLaunchCard {...defaultProps} />);
+
+    const project = within(screen.getByRole("region", { name: "Project" }));
+    expect(project.getByText("test-repo")).toBeVisible();
+    expect(project.getByText("/tmp/test-repo")).toBeVisible();
+    // A single-project workspace has nothing to choose between, so the
+    // column must not render a picker with one row in it.
+    expect(project.queryAllByRole("button")).toHaveLength(0);
+  });
+
+  it("filters a long repository list, and leaves a short one alone", () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({
+      path: `/tmp/repo-${i}`,
+      name: i === 0 ? "vanguard" : `repo-${i}`,
+      isGitRepo: true,
+      currentBranch: "main",
+      remoteUrl: null,
+    }));
+
+    render(<PreLaunchCard {...defaultProps} workspaceType="multi-repo" repositories={many} />);
+    const project = within(screen.getByRole("region", { name: "Project" }));
+    fireEvent.change(project.getByPlaceholderText("Filter projects..."), {
+      target: { value: "vang" },
+    });
+    expect(project.getByRole("button", { name: /vanguard/ })).toBeVisible();
+    expect(project.queryByRole("button", { name: /repo-4/ })).not.toBeInTheDocument();
+
+    cleanup();
+    render(<PreLaunchCard {...defaultProps} workspaceType="multi-repo" repositories={repos} />);
+    expect(
+      within(screen.getByRole("region", { name: "Project" })).queryByPlaceholderText(
+        "Filter projects...",
+      ),
+    ).not.toBeInTheDocument();
+  });
+
+  it("lists the workspace repositories in the project column and switches on click", () => {
+    const onRepoChange = vi.fn();
+    render(
+      <PreLaunchCard
+        {...defaultProps}
+        workspaceType="multi-repo"
+        repositories={repos}
+        selectedRepoPath="/tmp/api"
+        onRepoChange={onRepoChange}
+      />,
+    );
+
+    const project = within(screen.getByRole("region", { name: "Project" }));
+    const web = project.getByRole("button", { name: /web/ });
+    expect(project.getByRole("button", { name: /api/ })).toHaveAttribute("aria-pressed", "true");
+    expect(web).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(web);
+    expect(onRepoChange).toHaveBeenCalledWith("/tmp/web");
+  });
+
+  it("shows the integrations without an advanced disclosure", () => {
+    render(<PreLaunchCard {...defaultProps} />);
+
+    expect(screen.queryByRole("button", { name: /Advanced settings/ })).not.toBeInTheDocument();
+    expect(screen.getByText("MCP Servers")).toBeVisible();
+    expect(screen.getByText("Plugins & Skills")).toBeVisible();
+  });
+
+  it("puts the resolves-to summary outside the settings column, after it", () => {
+    render(<PreLaunchCard {...defaultProps} />);
+
+    const settings = screen.getByRole("region", { name: "Session settings" });
+    const resolves = screen.getByRole("region", { name: "Resolves to" });
+
+    expect(settings.contains(resolves)).toBe(false);
+    expect(
+      settings.compareDocumentPosition(resolves) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(within(resolves).getByText(/There is no remote launcher/)).toBeVisible();
+  });
+});
+
+/*
+ * The project column owns which repository a session lands in, so the branch
+ * control below it picks a branch and nothing else.
+ */
+describe("PreLaunchCard branch picker (design 1b)", () => {
+  const repos = [
+    { path: "/tmp/api", name: "api", isGitRepo: true, currentBranch: "main", remoteUrl: null },
+    { path: "/tmp/web", name: "web", isGitRepo: true, currentBranch: "release", remoteUrl: null },
+  ];
+  const multiProps = {
+    ...defaultProps,
+    workspaceType: "multi-repo" as const,
+    repositories: repos,
+    selectedRepoPath: "/tmp/api",
+    onRepoChange: vi.fn(),
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function openPicker() {
+    fireEvent.click(screen.getByLabelText("Git Branch"));
+  }
+
+  it("calls the control Git Branch whatever shape the workspace is", () => {
+    render(<PreLaunchCard {...multiProps} />);
+
+    expect(screen.getByText("Git Branch")).toBeVisible();
+    expect(screen.queryByText("Repository & Branch")).not.toBeInTheDocument();
+  });
+
+  it("offers no way to change repository from the branch picker", () => {
+    render(<PreLaunchCard {...multiProps} />);
+    openPicker();
+
+    const settings = within(screen.getByRole("region", { name: "Session settings" }));
+    expect(settings.queryByText("web")).not.toBeInTheDocument();
+    expect(settings.getByText("develop")).toBeVisible();
+  });
+
+  it("still offers branch creation in a multi-repo workspace", () => {
+    render(<PreLaunchCard {...multiProps} onCreateBranch={vi.fn()} />);
+    openPicker();
+
+    expect(screen.getByText("Create New Branch")).toBeVisible();
+  });
+
+  it("asks the selected repository whether it is a checkout, not the lagging poll", () => {
+    /* The poll's flag is initialised true and answers a round behind the
+       selection, so on switching to a non-git folder it still says "git" for
+       one window. Both the picker and the resolves-to row must ignore it. */
+    render(
+      <PreLaunchCard
+        {...multiProps}
+        isGitRepo={true}
+        repositories={[
+          {
+            path: "/tmp/notes",
+            name: "notes",
+            isGitRepo: false,
+            currentBranch: null,
+            remoteUrl: null,
+          },
+        ]}
+        selectedRepoPath="/tmp/notes"
+      />,
+    );
+
+    expect(screen.getByText("Not a Git repository")).toBeVisible();
+    expect(
+      within(screen.getByRole("region", { name: "Resolves to" })).getByText("not a git repository"),
+    ).toBeVisible();
+  });
+
+  it("creates a branch in the repository the project column has selected", async () => {
+    const onCreateBranch = vi.fn().mockResolvedValue(undefined);
+    render(<PreLaunchCard {...multiProps} onCreateBranch={onCreateBranch} />);
+    openPicker();
+
+    fireEvent.click(screen.getByText("Create New Branch"));
+    fireEvent.change(screen.getByPlaceholderText("feature/my-branch"), {
+      target: { value: "feat/x" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => expect(onCreateBranch).toHaveBeenCalledWith("feat/x", false, "/tmp/api"));
+  });
+});
+
+describe("PreLaunchCard attaching to tmux", () => {
+  const tmuxSessions = [
+    { name: "cc-aoreilly-4", cwd: "/repo/act", attached: false, created: 1, windows: 1 },
+    { name: "chatbot", cwd: "/repo/chatbot", attached: true, created: 2, windows: 2 },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("offers the live tmux sessions to attach to", () => {
+    const onAttachTmuxChange = vi.fn();
+    render(
+      <PreLaunchCard
+        {...defaultProps}
+        tmuxSessions={tmuxSessions}
+        onAttachTmuxChange={onAttachTmuxChange}
+      />,
+    );
+
+    const list = within(screen.getByRole("region", { name: "Attach to tmux" }));
+    fireEvent.click(list.getByRole("button", { name: /cc-aoreilly-4/ }));
+    expect(onAttachTmuxChange).toHaveBeenCalledWith("cc-aoreilly-4");
+  });
+
+  /* Attaching runs whatever is already in that session. The agent, branch and
+     integrations above do nothing, and a summary that kept describing them
+     would be describing a launch that is not going to happen. */
+  it("says the settings above do not apply once attaching", () => {
+    render(
+      <PreLaunchCard
+        {...defaultProps}
+        slot={makeSlot({ attachTmux: "cc-aoreilly-4" })}
+        tmuxSessions={tmuxSessions}
+        onAttachTmuxChange={vi.fn()}
+      />,
+    );
+
+    const resolves = within(screen.getByRole("region", { name: "Resolves to" }));
+    expect(resolves.getByText(/attaches to the tmux session cc-aoreilly-4/i)).toBeVisible();
+    expect(resolves.getByText(/settings above do not apply/i)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Attach" })).toBeVisible();
+  });
+
+  it("says nothing about tmux when there is no tmux running", () => {
+    render(<PreLaunchCard {...defaultProps} tmuxSessions={[]} onAttachTmuxChange={vi.fn()} />);
+
+    expect(screen.queryByRole("region", { name: "Attach to tmux" })).not.toBeInTheDocument();
   });
 });

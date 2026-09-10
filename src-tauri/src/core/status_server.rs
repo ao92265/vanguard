@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::{
-    extract::State,
+    extract::{DefaultBodyLimit, Path, State},
     http::{HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
@@ -157,6 +157,12 @@ fn build_router(state: Arc<ServerState>) -> Router {
         .route("/hook/user-prompt", post(handle_hook_user_prompt_submit))
         .route("/control/sessions", get(handle_control_sessions))
         .route("/control/answer", post(handle_control_answer))
+        .route(
+            "/control/image/{session_id}",
+            post(handle_control_image).layer(DefaultBodyLimit::max(
+                super::session_attachments::MAX_IMAGE_BYTES,
+            )),
+        )
         .with_state(state)
 }
 
@@ -1147,6 +1153,81 @@ async fn handle_control_sessions(
         })
         .collect();
     Ok(Json(sessions))
+}
+
+async fn handle_control_image(
+    State(state): State<Arc<ServerState>>,
+    Path(session_id): Path<u32>,
+    headers: HeaderMap,
+    data: axum::body::Bytes,
+) -> StatusCode {
+    if !is_loopback_request(&headers) {
+        return StatusCode::FORBIDDEN;
+    }
+    if !verify_control_token(&headers, &state.control_token, &state.control_token_path) {
+        return StatusCode::UNAUTHORIZED;
+    }
+    let caption = headers
+        .get("x-image-caption")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    if caption.len() > MAX_CONTROL_ANSWER_LEN * 2 {
+        return StatusCode::BAD_REQUEST;
+    }
+    let Ok(caption) = hex::decode(caption).and_then(|bytes| {
+        String::from_utf8(bytes).map_err(|_| hex::FromHexError::InvalidStringLength)
+    }) else {
+        return StatusCode::BAD_REQUEST;
+    };
+    if caption.chars().any(char::is_control) {
+        return StatusCode::BAD_REQUEST;
+    }
+    let media_type = headers
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    if super::session_attachments::image_extension(&data, media_type).is_err() {
+        return StatusCode::BAD_REQUEST;
+    }
+    let Some(marker) = state.notified_at.read().await.get(&session_id).copied() else {
+        return StatusCode::CONFLICT;
+    };
+    let Some(pm) = &state.process_manager else {
+        return StatusCode::SERVICE_UNAVAILABLE;
+    };
+    let Some(pid) = pm.session_pid(session_id) else {
+        return StatusCode::NOT_FOUND;
+    };
+    let service = pm.attachments();
+    let image = match service.save(session_id, &data, media_type).await {
+        Ok(image) => image,
+        Err(_) => return StatusCode::BAD_GATEWAY,
+    };
+    let claimed = {
+        let mut blocked = state.notified_at.write().await;
+        if blocked.get(&session_id) != Some(&marker) || pm.session_pid(session_id) != Some(pid) {
+            false
+        } else {
+            blocked.remove(&session_id);
+            true
+        }
+    };
+    let result = if claimed {
+        let pm = pm.clone();
+        let pending = image.clone();
+        let delivered = tokio::task::spawn_blocking(move || {
+            pm.attachments().with_current(session_id, &pending, |path| {
+                if pm.session_pid(session_id) != Some(pid) { return Err("Session changed during upload".into()); }
+                pm.write_stdin(session_id, &format!("\x1b[200~{path} {caption}\x1b[201~\n")).map_err(|error| error.to_string())
+            })
+        }).await;
+        // A failed PTY write may have partially succeeded; leave the marker consumed.
+        if matches!(delivered, Ok(Ok(()))) { StatusCode::OK } else { StatusCode::CONFLICT }
+    } else { StatusCode::CONFLICT };
+    if result != StatusCode::OK {
+        service.remove(&image.path).await;
+    }
+    result
 }
 
 #[derive(Deserialize)]
@@ -2434,6 +2515,30 @@ mod tests {
             req = req.header("Authorization", format!("Bearer {token}"));
         }
         req.send().await.unwrap().status().as_u16()
+    }
+
+    #[tokio::test]
+    async fn control_image_requires_auth_and_a_blocked_session() {
+        let (addr, _) = start_control_test_server(Some("image-token".into())).await;
+        let url = format!("http://{addr}/control/image/7");
+        let client = reqwest::Client::new();
+        let response = client
+            .post(&url)
+            .header("content-type", "image/jpeg")
+            .body(vec![255, 216, 255, 217])
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status().as_u16(), 401);
+        let response = client
+            .post(&url)
+            .bearer_auth("image-token")
+            .header("content-type", "image/jpeg")
+            .body(vec![255, 216, 255, 217])
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status().as_u16(), 409);
     }
 
     /// Same as `post_answer`, but with control over the answer text itself.

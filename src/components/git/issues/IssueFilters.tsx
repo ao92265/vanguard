@@ -70,7 +70,7 @@ export function IssueFilters({ repoPath }: IssueFiltersProps) {
             onClick={() => handleStateChange(f.value)}
             className={`rounded-full px-2 py-0.5 text-xs transition-colors ${
               issueFilter === f.value
-                ? "bg-maestro-accent text-white"
+                ? "bg-maestro-accent text-maestro-on-accent"
                 : "bg-maestro-card text-maestro-muted hover:bg-maestro-surface hover:text-maestro-text"
             }`}
           >

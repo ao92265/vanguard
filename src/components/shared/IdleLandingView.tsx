@@ -24,7 +24,7 @@ export function IdleLandingView({ onAdd }: IdleLandingViewProps) {
       <button
         type="button"
         onClick={onAdd}
-        className="flex h-14 w-14 items-center justify-center rounded-full bg-maestro-accent text-white shadow-lg shadow-maestro-accent/25 transition-all duration-200 hover:bg-maestro-accent/90 hover:shadow-maestro-accent/35 hover:scale-105 active:scale-95"
+        className="flex h-14 w-14 items-center justify-center rounded-full bg-maestro-accent text-maestro-on-accent shadow-lg shadow-maestro-accent/25 transition-all duration-200 hover:bg-maestro-accent/90 hover:shadow-maestro-accent/35 hover:scale-105 active:scale-95"
         aria-label="Launch new session"
         title="Launch new session"
       >

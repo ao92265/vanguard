@@ -31,6 +31,7 @@ pub mod session;
 pub mod standup;
 pub mod system;
 pub mod terminal;
+pub mod tmux_sessions;
 pub mod update;
 pub mod usage;
 pub mod vanguard;

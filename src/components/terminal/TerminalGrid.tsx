@@ -6,14 +6,8 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
-import { restrictToHorizontalAxis } from "@dnd-kit/modifiers";
-import {
-  arrayMove,
-  horizontalListSortingStrategy,
-  SortableContext,
-  useSortable,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
+import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { invoke } from "@tauri-apps/api/core";
 import { ask, open } from "@tauri-apps/plugin-dialog";
 import { GripVertical } from "lucide-react";
@@ -77,9 +71,18 @@ import {
   writeStdin,
 } from "@/lib/terminal";
 import { terminalArmInitialPrompt } from "@/lib/terminalPrompt";
+import {
+  newTmuxSessionName,
+  rememberTmuxSession,
+  tmuxAttachCommand,
+  tmuxAvailable,
+  tmuxPreLaunchLine,
+  waitForTmuxSession,
+} from "@/lib/tmux";
 import { useProjectColors } from "@/lib/useProjectColors";
 import { cleanupSessionWorktree, prepareSessionWorktree } from "@/lib/worktreeManager";
 import { useActivityStore } from "@/stores/useActivityStore";
+import { useBandStore } from "@/stores/useBandStore";
 import { useCliSettingsStore } from "@/stores/useCliSettingsStore";
 import { useFDAStore } from "@/stores/useFDAStore";
 import { useMcpStore } from "@/stores/useMcpStore";
@@ -95,6 +98,7 @@ import {
 import { useWorktreeSettingsStore } from "@/stores/useWorktreeSettingsStore";
 import { ParkedShelf } from "./ParkedShelf";
 import { PreLaunchCard, type SessionSlot } from "./PreLaunchCard";
+import { SessionRail, SessionRailRow } from "./SessionRail";
 import { SplitPaneView } from "./SplitPaneView";
 import {
   buildGridTree,
@@ -108,7 +112,6 @@ import {
   updateRatio,
 } from "./splitTree";
 import { TerminalView } from "./TerminalView";
-import { SessionStatusDot, ThinkingIndicator } from "./ThinkingIndicator";
 
 /**
  * How many parked samurai transcripts one grid keeps mounted (issue #122).
@@ -470,6 +473,18 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
     return map;
   }, [allSessions]);
 
+  // One line of what each session last said about itself, for the rail. The
+  // question it is waiting on wins over the generic activity message; a
+  // session that has said nothing gets no line rather than a placeholder.
+  const sessionTailById = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const sess of allSessions) {
+      const tail = sess.needsInputPrompt ?? sess.statusMessage;
+      if (tail?.trim()) map.set(sess.id, tail.trim());
+    }
+    return map;
+  }, [allSessions]);
+
   // Parked terminals: hidden from the grid (CSS-only, PTY keeps running).
   // Selector returns the stored array reference; Sets are built in useMemo.
   const parkedSessionIds = useSessionStore((s) => s.parkedSessionIds);
@@ -552,10 +567,10 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
   // Ordered slot IDs from the split tree (defines Cmd+1-9 ordering)
   const orderedSlotIds = useMemo(() => collectSlotIds(layoutTree), [layoutTree]);
 
-  // Zoom tab strip display order: the user-dragged order (store) wins; slots
+  // Session rail display order: the user-dragged order (store) wins; slots
   // not in the stored order keep tree order (Array.sort is stable). Self-heals:
   // killed slots drop out, newly added slots append in tree order. Only the
-  // zoom strip and Alt+Arrow cycling use this — grid layout stays tree-ordered.
+  // rail and Alt+Arrow cycling use this; grid layout stays tree-ordered.
   const displaySlotIds = useMemo(() => {
     if (!zoomTabOrder?.length) return orderedSlotIds;
     const rank = new Map(zoomTabOrder.map((id, i) => [id, i]));
@@ -564,14 +579,14 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
     );
   }, [orderedSlotIds, zoomTabOrder]);
 
-  // Drag-to-reorder for the zoom tab strip (same dnd-kit setup as ProjectTabs).
-  const zoomTabSensors = useSensors(
+  // Drag-to-reorder for the session rail (same dnd-kit setup as ProjectTabs).
+  const railSensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 5 },
     }),
   );
 
-  const handleZoomTabDragEnd = useCallback(
+  const handleRailDragEnd = useCallback(
     (event: DragEndEvent) => {
       const { active, over } = event;
       if (!tabId || !over || active.id === over.id) return;
@@ -756,29 +771,71 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
     onSessionCountChange?.(slots.length, launchedCount);
   }, [slots, onSessionCountChange]);
 
+  /* Which repository the branch state currently describes, and which poll owns
+     the right to write it. Both exist because a repository switch starts a new
+     poll while the previous one is still in flight, and everything downstream
+     reads `branches` as though it described the current selection.
+
+     `isGitRepo` is deliberately NOT reset on a switch: it is a claim about the
+     previous repository, and replacing it with a claim about the new one that
+     nothing has checked yet only swaps one wrong answer for another. Readers
+     are told the answers are in flight by `isLoadingBranches` instead. */
+  const polledRepoPath = useRef<string | null>(null);
+  const latestBranchPoll = useRef(0);
+
   // Refresh branches callback (used by useEffect and exposed via handle)
   const refreshBranches = useCallback(() => {
     if (!effectiveRepoPath) {
+      polledRepoPath.current = null;
+      latestBranchPoll.current += 1;
+      setBranches([]);
       setIsGitRepo(false);
+      setIsLoadingBranches(false);
       return;
     }
+
+    // A switch invalidates the previous repository's list outright. Keeping it
+    // on screen "until the new one arrives" is what let the picker, and the
+    // resolves-to row through it, name a branch from a repository this session
+    // is no longer pointed at. An ordinary refresh of the SAME repository
+    // keeps its list, so the picker does not blink empty every time a branch
+    // is created or a worktree is prepared.
+    if (polledRepoPath.current !== effectiveRepoPath) {
+      polledRepoPath.current = effectiveRepoPath;
+      setBranches([]);
+    }
+
+    // Whichever poll was started last owns the state. Promises settle in
+    // whatever order the git calls happen to finish, so without this a slow
+    // answer for an abandoned repository repaints over the answer for the one
+    // actually selected, and no further poll is coming to correct it.
+    const pollId = latestBranchPoll.current + 1;
+    latestBranchPoll.current = pollId;
 
     setIsLoadingBranches(true);
     getBranchesWithWorktreeStatus(effectiveRepoPath)
       .then((branchList) => {
+        if (pollId !== latestBranchPoll.current) return;
         setBranches(branchList);
         setIsGitRepo(true);
         setIsLoadingBranches(false);
       })
       .catch((err) => {
+        if (pollId !== latestBranchPoll.current) return;
         console.error("Failed to fetch branches:", err);
         setIsGitRepo(false);
         setIsLoadingBranches(false);
       });
 
     invoke<boolean>("has_managed_worktree", { projectPath: effectiveRepoPath })
-      .then(setHasManagedWorktree)
-      .catch(() => setHasManagedWorktree(false));
+      .then((has) => {
+        if (pollId !== latestBranchPoll.current) return;
+        setHasManagedWorktree(has);
+      })
+      .catch(() => {
+        if (pollId !== latestBranchPoll.current) return;
+        setHasManagedWorktree(false);
+      });
   }, [effectiveRepoPath]);
 
   // Fetch branches when effectiveRepoPath is available
@@ -962,6 +1019,18 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
     async (slotId: string) => {
       const slot = slotsRef.current.find((s) => s.id === slotId);
       if (!slot || slot.sessionId !== null) return;
+
+      /* Refuse an unattachable name HERE, before a worktree, a PTY, a session
+         row or a successor registration exists. Checked at the point of use
+         it was still a refusal, but "nothing was launched" would have been a
+         lie: a real git worktree and a live shell were already sitting there.
+         Both facts this needs are known now. */
+      if (slot.attachTmux && !tmuxAttachCommand(slot.attachTmux)) {
+        setError(
+          `Could not attach to the tmux session "${slot.attachTmux}": its name is not one Vanguard will put on a command line. Nothing was launched.`,
+        );
+        return;
+      }
 
       try {
         // Save branch config before launching (ensures it's persisted)
@@ -1274,7 +1343,25 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
                   launchPromptOnLine = false;
                 }
               }
-              const cliCommand = launchLine?.command ?? null;
+              /* Attaching replaces the launch entirely: the pane joins a
+                 session already running its own work, so none of the agent,
+                 branch or integration settings apply to it. */
+              const attachCommand = slot.attachTmux ? tmuxAttachCommand(slot.attachTmux) : null;
+              /* A refused attach must NOT fall through to a launch. It used
+                 to: `attachCommand ?? launchLine?.command` turned a documented
+                 refusal into a fallback that ran a full agent, with the slot's
+                 branch and working directory, in a pane the confirmation
+                 screen had just told him those settings did not apply to. The
+                 refusal itself now happens at the top of this function, before
+                 anything exists to leave behind. */
+              const cliCommand = attachCommand ?? launchLine?.command ?? null;
+              /* Nothing to type is not the same as typing nothing: without
+                 this the launch wrote the literal string "null" into the
+                 shell and called it a start. */
+              if (!cliCommand) {
+                setError("There was no command to launch, so nothing was started in this pane.");
+                return;
+              }
 
               // Harvest triage launch (issue #98): arm the backend BEFORE
               // the CLI launches, so the journal-prompt injection gate is
@@ -1314,6 +1401,45 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
                   );
                 } catch (err) {
                   console.error("[InitialPrompt] Failed to arm the initial prompt:", err);
+                }
+              }
+
+              /* Every launch goes into tmux, so the work survives Vanguard
+                 closing and can be reached from any terminal. Attaching is
+                 already inside tmux, and a machine without tmux is left
+                 alone rather than handed a command that would not run.
+
+                 Two typed lines rather than `tmux new-session <command>`:
+                 quoting an agent command line into tmux's own parser is the
+                 fragile path, and this one has no quoting at all. The wait
+                 is a real check that the session exists, not a pause and a
+                 hope: typing the agent command into a shell that is still
+                 becoming tmux would lose it. */
+              const tmuxName = newTmuxSessionName(sessionId);
+              const tmuxLine = tmuxPreLaunchLine(Boolean(attachCommand), tmuxName);
+              if (tmuxLine && (await tmuxAvailable())) {
+                try {
+                  /* Recorded BEFORE the line is typed, and never afterwards.
+                     The close path kills only a name it was given, and a
+                     session that came up a moment after the wait gave up
+                     would otherwise be a name nobody holds: an agent left
+                     running with nothing on screen. Killing a name that was
+                     never created is a no-op, and this name is unique to this
+                     launch, so it can never reach anyone else's work. */
+                  rememberTmuxSession(sessionId, tmuxName);
+                  useSessionStore.getState().updateSession(sessionId, { tmuxName });
+                  await writeStdin(sessionId, `${tmuxLine}\r`);
+                  if (!(await waitForTmuxSession(tmuxName))) {
+                    /* Surfaced, not swallowed: the command below still runs,
+                       so the work happens, but it is NOT in tmux and will die
+                       with the app. Saying nothing would leave him believing
+                       otherwise. */
+                    setError(
+                      "This session did not start inside tmux, so it will not survive Vanguard closing.",
+                    );
+                  }
+                } catch (err) {
+                  console.error("[tmux] Could not start the session inside tmux:", err);
                 }
               }
 
@@ -1733,6 +1859,27 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
 
   const updateSlotCustomName = useCallback((slotId: string, name: string) => {
     setSlots((prev) => prev.map((s) => (s.id === slotId ? { ...s, customName: name } : s)));
+  }, []);
+
+  /* The band store already polls tmux for the board; reading it here keeps
+     one poll rather than a second one per grid. */
+  const tmuxSessions = useBandStore((state) => state.tmuxSessions);
+
+  const updateSlotAttachTmux = useCallback((slotId: string, name: string | null) => {
+    setSlots((prev) =>
+      prev.map((s) =>
+        s.id === slotId
+          ? {
+              ...s,
+              attachTmux: name,
+              /* Attaching runs whatever that session is already running, so a
+                 resume target would be quietly ignored. Clear it rather than
+                 leave the card promising two different launches. */
+              resumeSessionId: name ? null : s.resumeSessionId,
+            }
+          : s,
+      ),
+    );
   }, []);
 
   const updateSlotResumeSession = useCallback((slotId: string, sessionId: string | null) => {
@@ -2345,7 +2492,6 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
             workspaceType={workspaceType}
             selectedRepoPath={effectiveRepoPath}
             onRepoChange={onRepoChange}
-            fetchBranchesForRepo={getBranchesWithWorktreeStatus}
             mcpServers={mcpServers}
             skills={skills}
             plugins={plugins}
@@ -2366,6 +2512,8 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
             onLaunch={() => launchSlot(slot.id)}
             onRemove={() => removeSlot(slot.id)}
             onResumeSessionChange={(sessionId) => updateSlotResumeSession(slot.id, sessionId)}
+            tmuxSessions={tmuxSessions}
+            onAttachTmuxChange={(name) => updateSlotAttachTmux(slot.id, name)}
             isZoomed={isSlotZoomed}
             onToggleZoom={() => handleToggleZoom(slot.id)}
           />
@@ -2424,6 +2572,8 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
       eagleTileCount,
       parkedSessionIds,
       zoomedSlotId,
+      tmuxSessions,
+      updateSlotAttachTmux,
     ],
   );
 
@@ -2490,6 +2640,15 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
   const zoomActive =
     !eagleMode && zoomedSlotId !== null && slots.some((s) => s.id === zoomedSlotId);
 
+  // Rail order = the zoom navigation order, so the rail, Alt+Arrow cycling and
+  // Cmd+1-9 all agree about which pane is which.
+  const railSlots = zoomActive
+    ? (visibleDisplaySlotIds
+        .map((id) => slots.find((s) => s.id === id))
+        .filter(Boolean) as SessionSlot[])
+    : [];
+  const canAddSession = occupiedSlotCount(slots) < MAX_SESSIONS;
+
   // Both wrappers exist in BOTH modes (display:contents in eagle) so toggling
   // eagle view never changes the element tree shape — a structural difference
   // would remount every xterm and lose all scrollback. The shelf only ever
@@ -2504,107 +2663,70 @@ export const TerminalGrid = forwardRef<TerminalGridHandle, TerminalGridProps>(fu
           : `flex h-full flex-col bg-maestro-bg ${zoomActive ? "" : "p-2"} ${isDragging ? "split-dragging" : ""}`
       }
     >
-      {zoomActive &&
-        (() => {
-          // zoomActive's own definition already guarantees this, but narrowing
-          // doesn't survive through it into this closure — check directly.
-          if (zoomedSlotId === null) return null;
-          const orderedSlots = visibleDisplaySlotIds
-            .map((id) => slots.find((s) => s.id === id))
-            .filter(Boolean) as SessionSlot[];
-          const zoomedIndex = orderedSlots.findIndex((s) => s.id === zoomedSlotId);
-          return (
-            <div className="flex h-8 shrink-0 items-center gap-2 border-b border-maestro-border bg-maestro-surface px-3">
-              <span className="text-[11px] font-medium uppercase tracking-wider text-maestro-muted">
-                Terminal {zoomedIndex + 1}/{orderedSlots.length}
-              </span>
-              <div className="h-3.5 w-px bg-maestro-border" />
-              <div
-                className="scrollbar-none flex flex-1 gap-0.5 overflow-x-auto"
-                onWheel={(e) => {
-                  // Vertical wheel input scrolls the strip horizontally (scrollbar is hidden).
-                  if (e.deltaY !== 0) e.currentTarget.scrollLeft += e.deltaY;
-                }}
-              >
-                <DndContext
-                  sensors={zoomTabSensors}
-                  collisionDetection={closestCenter}
-                  modifiers={[restrictToHorizontalAxis]}
-                  onDragEnd={handleZoomTabDragEnd}
-                >
-                  <SortableContext
-                    items={orderedSlots.map((s) => s.id)}
-                    strategy={horizontalListSortingStrategy}
-                  >
-                    {orderedSlots.map((slot, index) => {
-                      const isTabActive = slot.id === zoomedSlotId;
-                      // Slots are replaced wholesale on update (never mutated in place),
-                      // so this stays valid for the onToggleFlag closure below.
-                      const sessionId = slot.sessionId;
-                      const liveName =
-                        sessionId !== null ? sessionNameById.get(sessionId) : undefined;
-                      const label =
-                        liveName?.trim() || slot.customName.trim() || `Terminal ${index + 1}`;
-
-                      return (
-                        <ZoomTab
-                          key={slot.id}
-                          slotId={slot.id}
-                          index={index}
-                          isActive={isTabActive}
-                          label={label}
-                          hasSession={sessionId !== null}
-                          sessionId={sessionId}
-                          onSelect={() => handleToggleZoom(slot.id)}
-                          onToggleFlag={
-                            sessionId !== null
-                              ? () => useSessionStore.getState().toggleSessionFlag(sessionId)
-                              : undefined
-                          }
-                        />
-                      );
-                    })}
-                  </SortableContext>
-                </DndContext>
-              </div>
-              <button
-                type="button"
-                onClick={() => handleToggleZoom(zoomedSlotId)}
-                className="rounded p-0.5 text-maestro-muted transition-colors hover:bg-maestro-card hover:text-maestro-text"
-                title="Exit zoom"
-              >
-                <svg
-                  className="h-3.5 w-3.5"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  aria-hidden="true"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                </svg>
-              </button>
-            </div>
-          );
-        })()}
       <div
         className={
           eagleMode ? "contents" : `relative flex min-h-0 flex-1 ${zoomActive ? "p-2" : ""}`
         }
       >
-        <SplitPaneView
-          node={layoutTree}
-          renderLeaf={renderLeaf}
-          onRatioChange={handleRatioChange}
-          onDragStateChange={setIsDragging}
-          eagleMode={eagleMode}
-          hiddenSlotIds={parkedSlotIds}
-          zoomedSlotId={zoomActive ? zoomedSlotId : null}
-        />
+        {/* This host is present in BOTH zoom states and in eagle mode, so
+            opening or closing the rail never changes the element tree above
+            the panes. A structural change here would remount every xterm and
+            wipe its scrollback, the same rule the eagle and park paths follow. */}
+        <div className={eagleMode ? "contents" : "relative h-full min-w-0 flex-1"}>
+          <SplitPaneView
+            node={layoutTree}
+            renderLeaf={renderLeaf}
+            onRatioChange={handleRatioChange}
+            onDragStateChange={setIsDragging}
+            eagleMode={eagleMode}
+            hiddenSlotIds={parkedSlotIds}
+            zoomedSlotId={zoomActive ? zoomedSlotId : null}
+          />
+        </div>
+        {zoomActive && zoomedSlotId !== null && (
+          <SessionRail
+            count={railSlots.filter((s) => s.sessionId !== null).length}
+            onExitZoom={() => handleToggleZoom(zoomedSlotId)}
+            onNewTerminal={canAddSession ? addSession : undefined}
+          >
+            <DndContext
+              sensors={railSensors}
+              collisionDetection={closestCenter}
+              modifiers={[restrictToVerticalAxis]}
+              onDragEnd={handleRailDragEnd}
+            >
+              <SortableContext
+                items={railSlots.map((s) => s.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                {railSlots.map((slot, index) => {
+                  const isRowActive = slot.id === zoomedSlotId;
+                  // Slots are replaced wholesale on update (never mutated in
+                  // place), so this stays valid for the onToggleFlag closure.
+                  const sessionId = slot.sessionId;
+                  const liveName = sessionId !== null ? sessionNameById.get(sessionId) : undefined;
+                  return (
+                    <SessionRailRow
+                      key={slot.id}
+                      slotId={slot.id}
+                      index={index}
+                      isActive={isRowActive}
+                      label={liveName?.trim() || slot.customName.trim() || `Terminal ${index + 1}`}
+                      sessionId={sessionId}
+                      tail={sessionId !== null ? sessionTailById.get(sessionId) : undefined}
+                      onSelect={() => handleToggleZoom(slot.id)}
+                      onToggleFlag={
+                        sessionId !== null
+                          ? () => useSessionStore.getState().toggleSessionFlag(sessionId)
+                          : undefined
+                      }
+                    />
+                  );
+                })}
+              </SortableContext>
+            </DndContext>
+          </SessionRail>
+        )}
         {allParked && (
           <div className="absolute inset-0 flex items-center justify-center text-sm text-maestro-muted">
             All terminals parked — click a chip below to restore
@@ -2802,116 +2924,5 @@ function DraggablePane({
         </div>
       )}
     </div>
-  );
-}
-
-/**
- * Single tab of the zoomed-terminal navigation strip, drag-reorderable via
- * dnd-kit (same pattern as ProjectTabs' TabItem). PointerSensor's 5px
- * activation constraint lets plain clicks through to onSelect.
- */
-function ZoomTab({
-  slotId,
-  index,
-  isActive,
-  label,
-  hasSession,
-  sessionId,
-  onSelect,
-  onToggleFlag,
-}: {
-  slotId: string;
-  index: number;
-  isActive: boolean;
-  label: string;
-  hasSession: boolean;
-  sessionId: number | null;
-  onSelect: () => void;
-  /** Clicking the already-active tab toggles the warning flag (header parity). */
-  onToggleFlag?: () => void;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: slotId,
-  });
-
-  // The strip scrolls horizontally with a hidden scrollbar, so a tab activated
-  // by keyboard (Alt+Arrow / number keys) can sit outside the visible range.
-  // "nearest" on both axes limits the scroll to the strip itself.
-  const nodeRef = useRef<HTMLElement | null>(null);
-  const combinedRef = useCallback(
-    (node: HTMLElement | null) => {
-      setNodeRef(node);
-      nodeRef.current = node;
-    },
-    [setNodeRef],
-  );
-  useEffect(() => {
-    if (isActive) nodeRef.current?.scrollIntoView?.({ inline: "nearest", block: "nearest" });
-  }, [isActive]);
-
-  // Warning flag: visible on the tab, and toggleable by clicking the
-  // already-active tab (matches the header / TerminalView tab bar behavior).
-  const isFlagged = useSessionStore(
-    (s) => sessionId !== null && s.flaggedSessionIds.includes(sessionId),
-  );
-  // Attention highlight (auto-unparked because the agent needs input) —
-  // same yellow chrome as the warning flag, cleared by selecting the session.
-  const hasAttention = useSessionStore(
-    (s) => sessionId !== null && s.attentionSessionIds.includes(sessionId),
-  );
-
-  // Attention-first click semantics on the active tab: the first click only
-  // acknowledges the attention highlight — it must not also set the warning
-  // flag (the chrome would stay yellow and the user would have flagged the
-  // session without knowing). Subsequent clicks toggle the flag as before.
-  const handleActiveClick = () => {
-    if (hasAttention && sessionId !== null) {
-      useSessionStore.getState().clearSessionAttention(sessionId);
-      return;
-    }
-    onToggleFlag?.();
-  };
-
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  };
-
-  return (
-    <button
-      ref={combinedRef}
-      style={style}
-      {...attributes}
-      {...listeners}
-      onClick={isActive && onToggleFlag ? handleActiveClick : onSelect}
-      className={`
-        flex shrink-0 items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors
-        ${isFlagged || hasAttention ? "warning-flag" : ""}
-        ${
-          isActive
-            ? "bg-maestro-blue/15 text-maestro-blue"
-            : "text-maestro-muted hover:bg-maestro-card hover:text-maestro-text"
-        }
-      `}
-      title={
-        isActive
-          ? onToggleFlag
-            ? hasAttention
-              ? `${label} (needs input — click to clear the attention highlight)`
-              : `${label} (click to ${isFlagged ? "clear" : "set"} warning flag)`
-            : `${label} (click to exit zoom)`
-          : `Switch to ${label}`
-      }
-    >
-      <span className="font-mono text-[10px] opacity-60">{index + 1}</span>
-      <span className="max-w-[180px] truncate">{label}</span>
-      {hasSession && sessionId !== null && (
-        <>
-          <ThinkingIndicator sessionId={sessionId} size={3} />
-          <SessionStatusDot sessionId={sessionId} />
-        </>
-      )}
-    </button>
   );
 }
