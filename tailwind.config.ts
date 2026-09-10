@@ -11,14 +11,21 @@ export default {
         maestro: {
           bg: rgb("bg"),
           surface: rgb("surface"),
+          elevated: rgb("elevated"),
           card: rgb("card"),
           border: rgb("border"),
+          "border-strong": rgb("border-strong"),
           text: rgb("text"),
+          "text-2": rgb("text-2"),
           muted: rgb("muted"),
+          faint: rgb("faint"),
           accent: rgb("accent"),
           // Ink for anything sitting ON the accent fill. White fails WCAG AA
           // on the dark accent; this is the design system's `--onAccent`.
           "on-accent": rgb("on-accent"),
+          alarm: rgb("alarm"),
+          "alarm-ground": rgb("alarm-ground"),
+          brand: rgb("brand"),
           blue: rgb("blue"),
           green: rgb("green"),
           red: rgb("red"),

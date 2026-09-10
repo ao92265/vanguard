@@ -276,4 +276,41 @@ describe("BoardCard", () => {
     render(<BoardCard item={handoffCard()} selected={false} onActivate={vi.fn()} />);
     expect(document.querySelector('[data-selected="true"]')).not.toBeInTheDocument();
   });
+
+  /* Two background utilities on one element is not a stronger colour, it is a
+     coin toss decided by which one Tailwind happens to emit last. The card
+     ground has to be set exactly once, or the needs-you fill never paints. */
+  it("sets the card ground exactly once, so the needs-you fill actually paints", () => {
+    const { unmount } = render(
+      <BoardCard
+        item={sessionCard("NeedsInput", "tab-1")}
+        selected={false}
+        onActivate={() => {}}
+      />,
+    );
+    const needs = screen.getByRole("button").className.match(/\bbg-maestro-[\w-]+/g) ?? [];
+    expect(needs).toEqual(["bg-maestro-accent"]);
+    unmount();
+    render(
+      <BoardCard item={sessionCard("Working", "tab-1")} selected={false} onActivate={() => {}} />,
+    );
+    const plain = screen.getByRole("button").className.match(/\bbg-maestro-[\w-]+/g) ?? [];
+    expect(plain).toEqual(["bg-maestro-surface"]);
+  });
+
+  /* The needs-you ground used to be a literal near-black hex, which meant the
+     one card that most has to be readable rendered as a black block on the
+     light theme. It has to come from a token so both themes get a tint. */
+  it("takes the needs-you ground from a token, not a literal colour", () => {
+    render(
+      <BoardCard
+        item={sessionCard("NeedsInput", "tab-1")}
+        selected={false}
+        onActivate={() => {}}
+      />,
+    );
+    const cls = screen.getByRole("button").className;
+    expect(cls).toMatch(/bg-maestro-accent/);
+    expect(cls).not.toMatch(/bg-\[#/);
+  });
 });

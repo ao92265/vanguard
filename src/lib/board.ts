@@ -302,16 +302,7 @@ export function assembleBoard({
      handoff covered by a live session is dropped, and one covered by an
      externally running claude (activeDirs) is not "on disk waiting" either:
      the running work IS it, so it shows in Building below instead. */
-  const liveDirs = new Set(sessions.map(sessionDir));
-  const sortedHandoffs = handoffs
-    .filter((h) => !h.stale && !h.orphan && !liveDirs.has(h.path))
-    .sort((a, b) => Date.parse(b.lastActive) - Date.parse(a.lastActive));
-  const seenPaths = new Set<string>();
-  const dedupedHandoffs = sortedHandoffs.filter((h) => {
-    if (seenPaths.has(h.path)) return false;
-    seenPaths.add(h.path);
-    return true;
-  });
+  const dedupedHandoffs = dedupeWaitingHandoffs(handoffs, sessions);
   const waitingHandoffs = dedupedHandoffs.filter((h) => !isCoveredByActiveDir(h.path, activeDirs));
   const liveOutsideHandoffs = dedupedHandoffs.filter((h) =>
     isCoveredByActiveDir(h.path, activeDirs),
@@ -508,4 +499,100 @@ export function assembleBoard({
   }
 
   return columns;
+}
+
+/**
+ * Every card waiting on Alex, across all six columns, oldest first.
+ *
+ * Sorted by how long it has been waiting rather than by column, because the
+ * column a blocked card sits in is an accident of what kind of work it is.
+ * A card with no timestamp sorts last: an unknown wait cannot outrank a
+ * measured one.
+ */
+export function blockedOldestFirst(columns: BoardColumns): BoardCardItem[] {
+  const all = [
+    ...columns.suggested,
+    ...columns.planning,
+    ...columns.building,
+    ...columns.checking,
+    ...columns.review,
+    ...columns.done,
+  ].filter((card) => card.needsYou);
+
+  return all.sort((a, b) => {
+    if (!a.since && !b.since) return 0;
+    if (!a.since) return 1;
+    if (!b.since) return -1;
+    return Date.parse(a.since) - Date.parse(b.since);
+  });
+}
+
+/**
+ * Is the board looking at a machine with nothing running on it?
+ *
+ * True only when every lane except Suggested is empty. Suggested holds
+ * handoff files, which are not work in flight, so a board carrying nothing
+ * but handoffs has nothing running by definition. Anything at all in the
+ * other five lanes makes this false: a cold-start panel that hid a live
+ * session would be exactly the silent under-reporting the pivot bans.
+ */
+export function isColdStart(columns: BoardColumns): boolean {
+  return (
+    columns.planning.length === 0 &&
+    columns.building.length === 0 &&
+    columns.checking.length === 0 &&
+    columns.review.length === 0 &&
+    columns.done.length === 0
+  );
+}
+
+/**
+ * The handoffs the Suggested lane will consider, in the order it shows them.
+ *
+ * Extracted so the top bar's crumb counts the same rows the lane draws.
+ * The two used to be computed separately, and the crumb read the raw store,
+ * so "10 handoffs on disk" could sit above a lane showing four: the stale,
+ * the orphaned and the ones a live session had already picked up were all
+ * counted by the chrome and dropped by the board.
+ */
+export function dedupeWaitingHandoffs(
+  handoffs: HandoffInfo[],
+  sessions: SessionConfig[],
+): HandoffInfo[] {
+  const liveDirs = new Set(sessions.map(sessionDir));
+  const sorted = handoffs
+    .filter((h) => !h.stale && !h.orphan && !liveDirs.has(h.path))
+    .sort((a, b) => Date.parse(b.lastActive) - Date.parse(a.lastActive));
+  const seenPaths = new Set<string>();
+  return sorted.filter((h) => {
+    if (seenPaths.has(h.path)) return false;
+    seenPaths.add(h.path);
+    return true;
+  });
+}
+
+/** How many handoffs are genuinely waiting on disk, the lane's own number. */
+export function handoffsOnDiskCount(
+  handoffs: HandoffInfo[],
+  sessions: SessionConfig[],
+  activeDirs: Set<string>,
+): number {
+  return dedupeWaitingHandoffs(handoffs, sessions).filter(
+    (h) => !isCoveredByActiveDir(h.path, activeDirs),
+  ).length;
+}
+
+/**
+ * Sessions that have a card in a lane other than Done.
+ *
+ * Defined off `inferSessionColumn` rather than off a status list of its own,
+ * so the crumb cannot claim work the board does not draw. The old count only
+ * excluded Done, Error and Timeout, which meant three idle terminals read as
+ * "3 live" over a board correctly saying nothing was running.
+ */
+export function liveSessionCount(sessions: SessionConfig[]): number {
+  return sessions.filter((s) => {
+    const column = inferSessionColumn(s.status);
+    return column !== null && column !== "done";
+  }).length;
 }

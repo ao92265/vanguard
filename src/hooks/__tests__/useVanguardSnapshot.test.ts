@@ -66,7 +66,11 @@ describe("buildSnapshot", () => {
         { name: "one", cwd: "/tmp/one", attached: true, created: 0, windows: 1 },
         { name: "two", cwd: "/tmp/two", attached: false, created: 0, windows: 1 },
       ],
-      externallyActiveDirs: new Set(["/tmp/elsewhere"]),
+      /* A tmux session only counts once a claude is actually live in its
+         directory, which is the rule the Building column itself now uses.
+         The third card is the live directory with no tmux session of its
+         own. */
+      externallyActiveDirs: new Set(["/tmp/one", "/tmp/two", "/tmp/elsewhere"]),
     });
 
     expect(buildSnapshot().buildingCount).toBe(3);
