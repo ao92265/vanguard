@@ -66,3 +66,21 @@ it("reserves exactly the width it occupies, so widening moves the page", () => {
   expect(slot).toHaveAttribute("data-expanded", "true");
   expect(nav).toHaveAttribute("data-expanded", "true");
 });
+
+it("puts the tools with the rest of the navigation, above the projects", () => {
+  renderRail();
+  const extensions = screen.getByRole("button", { name: "Extensions" });
+  const projects = screen.getByRole("tablist", { name: "Open projects" });
+  expect(
+    extensions.compareDocumentPosition(projects) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+});
+
+it("leaves the bottom of the rail to the width toggle alone", () => {
+  renderRail();
+  const bottom = document.querySelector(".workbench-rail-bottom");
+  expect(bottom).not.toBeNull();
+  const buttons = within(bottom as HTMLElement).getAllByRole("button");
+  expect(buttons).toHaveLength(1);
+  expect(buttons[0]).toHaveAccessibleName("Wide menu");
+});
