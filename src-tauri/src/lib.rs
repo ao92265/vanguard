@@ -1278,6 +1278,8 @@ pub fn run() {
             commands::handoffs::get_handoffs,
             commands::handoffs::dismiss_handoff,
             commands::reply_draft::draft_session_reply,
+            // Vanguard bot relay (conversation panel; CSP blocks direct local HTTP)
+            commands::bot::bot_conversation,
             // ACT relay (Factory view — CSP blocks direct local HTTP)
             commands::act::act_list_runs,
             commands::act::act_get_run,
