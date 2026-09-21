@@ -1,4 +1,13 @@
-import { Activity, Brain, BrainCircuit, Rocket, Sparkles, StickyNote, X } from "lucide-react";
+import {
+  Activity,
+  Brain,
+  BrainCircuit,
+  MessageSquare,
+  Rocket,
+  Sparkles,
+  StickyNote,
+  X,
+} from "lucide-react";
 import { lazy, Suspense } from "react";
 import { AiPanel } from "@/components/ai/AiPanel";
 import {
@@ -6,6 +15,7 @@ import {
   RIGHT_PANEL_MAX_WIDTH,
   RIGHT_PANEL_MIN_WIDTH,
 } from "@/components/shared/PanelResizeHandle";
+import { ConversationSection } from "@/components/sidebar/ConversationSection";
 import { LaunchSection } from "@/components/sidebar/LaunchSection";
 import { MemorySection } from "@/components/sidebar/MemorySection";
 import { OutsideSection } from "@/components/sidebar/OutsideSection";
@@ -20,7 +30,14 @@ const NotepadPanel = lazy(() =>
   })),
 );
 
-export type UtilityPanelKind = "memory" | "processes" | "notes" | "ai" | "secondbrain" | "launch";
+export type UtilityPanelKind =
+  | "memory"
+  | "processes"
+  | "notes"
+  | "ai"
+  | "secondbrain"
+  | "launch"
+  | "conversation";
 
 /**
  * The name and glyph for each panel. Exported because the dock that opens a
@@ -38,6 +55,9 @@ export const PANEL_META: Record<UtilityPanelKind, { title: string; icon: React.E
   secondbrain: { title: "Second Brain", icon: BrainCircuit },
   // Samurai run launcher + active runs (issue #63, PRD §5.8/§9).
   launch: { title: "Launch", icon: Rocket },
+  // The recent Telegram conversation with the Vanguard bot, read through the
+  // daemon's history route.
+  conversation: { title: "Conversation", icon: MessageSquare },
 };
 
 /**
@@ -108,6 +128,8 @@ export function UtilityPanel({
             <SecondBrainSection />
           ) : panel === "launch" ? (
             <LaunchSection onNavigate={onNavigateToSession} />
+          ) : panel === "conversation" ? (
+            <ConversationSection />
           ) : (
             <AiPanel />
           )}

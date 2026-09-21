@@ -2,6 +2,7 @@ pub mod act;
 pub mod act_control;
 pub mod act_engine;
 pub mod agents;
+pub mod bot;
 pub mod ai_runner;
 pub mod catalog;
 pub mod claude_sessions;

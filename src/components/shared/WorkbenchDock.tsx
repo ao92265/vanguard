@@ -10,7 +10,14 @@ import { PANEL_META, type UtilityPanelKind } from "./UtilityPanel";
  * and as the accessible name, so nothing about reaching a panel by name
  * changes.
  */
-const TOOLS: UtilityPanelKind[] = ["ai", "processes", "notes", "memory", "secondbrain"];
+const TOOLS: UtilityPanelKind[] = [
+  "ai",
+  "conversation",
+  "processes",
+  "notes",
+  "memory",
+  "secondbrain",
+];
 
 export function WorkbenchDock({
   activePanel,
